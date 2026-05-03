@@ -1,0 +1,291 @@
+.stack-avatar {
+  --mouth-open: 0.08;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 28% 24%, rgb(255 255 255 / 70%), transparent 32%),
+    linear-gradient(145deg, #ecf4f0 0%, #dce9e6 50%, #cadbd9 100%);
+}
+
+.stack-avatar__halo {
+  position: absolute;
+  width: 58%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 46%);
+  filter: blur(4px);
+}
+
+.stack-avatar__body {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  transform-origin: 50% 78%;
+  animation: stack-idle-sway 4.8s ease-in-out infinite;
+}
+
+.stack-avatar[data-expression="speaking"] .stack-avatar__body {
+  animation: stack-talk-sway 620ms ease-in-out infinite;
+}
+
+.stack-avatar[data-expression="listening"] .stack-avatar__body {
+  animation-duration: 3.2s;
+}
+
+.stack-avatar[data-expression="thinking"] .stack-avatar__body {
+  animation: stack-think-sway 1.8s ease-in-out infinite;
+}
+
+.stack-avatar__antenna {
+  position: relative;
+  width: 6px;
+  height: 24px;
+  margin-bottom: -2px;
+  border-radius: 999px;
+  background: #52666a;
+}
+
+.stack-avatar__antenna span {
+  position: absolute;
+  left: 50%;
+  top: -11px;
+  width: 17px;
+  height: 17px;
+  border: 3px solid #52666a;
+  border-radius: 50%;
+  background: #f5d76e;
+  transform: translateX(-50%);
+  animation: stack-antenna-pulse 1.8s ease-in-out infinite;
+}
+
+.stack-avatar__head {
+  position: relative;
+  width: min(58vw, 150px);
+  min-width: 116px;
+  aspect-ratio: 1.18;
+  border: 5px solid #43575c;
+  border-radius: 24px;
+  background: #f7faf7;
+  box-shadow:
+    inset 0 -10px 0 rgb(67 87 92 / 9%),
+    0 13px 24px rgb(47 66 70 / 23%);
+}
+
+.stack-avatar__screen {
+  position: absolute;
+  inset: 18%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  justify-items: center;
+  border: 4px solid #354a50;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #182529 0%, #25393e 100%);
+  box-shadow: inset 0 0 18px rgb(87 221 191 / 14%);
+}
+
+.stack-avatar__eye {
+  width: 16px;
+  height: 21px;
+  border-radius: 999px;
+  background: #bffce9;
+  box-shadow: 0 0 12px rgb(145 255 228 / 72%);
+  animation: stack-blink 5.6s infinite, stack-eye-wander 3.8s ease-in-out infinite;
+}
+
+.stack-avatar[data-expression="thinking"] .stack-avatar__eye--left {
+  height: 8px;
+}
+
+.stack-avatar[data-expression="thinking"] .stack-avatar__eye--right {
+  height: 18px;
+}
+
+.stack-avatar__mouth {
+  grid-column: 1 / 3;
+  width: 42px;
+  height: calc(6px + (28px * var(--mouth-open)));
+  margin-top: -3px;
+  border: 3px solid #bffce9;
+  border-radius: 999px;
+  background: rgb(19 35 38 / 72%);
+  box-shadow: 0 0 10px rgb(145 255 228 / 50%);
+  transition: height 70ms linear, width 90ms ease;
+}
+
+.stack-avatar[data-expression="idle"] .stack-avatar__mouth,
+.stack-avatar[data-expression="listening"] .stack-avatar__mouth {
+  width: 34px;
+  height: 7px;
+  background: #bffce9;
+}
+
+.stack-avatar__cheek {
+  position: absolute;
+  top: 52%;
+  width: 14px;
+  height: 9px;
+  border-radius: 999px;
+  background: #ef9f9b;
+  opacity: 0.75;
+}
+
+.stack-avatar__cheek--left {
+  left: 8px;
+}
+
+.stack-avatar__cheek--right {
+  right: 8px;
+}
+
+.stack-avatar__neck {
+  grid-row: 3;
+  width: 34px;
+  height: 18px;
+  border-radius: 0 0 8px 8px;
+  background: #52666a;
+}
+
+.stack-avatar__arm {
+  position: absolute;
+  top: 56%;
+  z-index: -1;
+  width: 48px;
+  height: 13px;
+  border: 4px solid #43575c;
+  border-radius: 999px;
+  background: #f5f8f5;
+  transform-origin: 84% 50%;
+  animation: stack-arm-idle 3.8s ease-in-out infinite;
+}
+
+.stack-avatar__arm--left {
+  left: -34px;
+  transform: rotate(18deg);
+}
+
+.stack-avatar__arm--right {
+  right: -34px;
+  transform-origin: 16% 50%;
+  animation-delay: -1.1s;
+}
+
+.stack-avatar[data-expression="speaking"] .stack-avatar__arm {
+  animation: stack-arm-talk 720ms ease-in-out infinite;
+}
+
+.stack-avatar[data-expression="listening"] .stack-avatar__arm {
+  animation-duration: 2.4s;
+}
+
+.stack-avatar__base {
+  display: grid;
+  place-items: center;
+  width: 112px;
+  height: 34px;
+  border: 4px solid #43575c;
+  border-radius: 20px 20px 14px 14px;
+  background: #f5f8f5;
+  box-shadow: inset 0 -6px 0 rgb(67 87 92 / 8%);
+}
+
+.stack-avatar__base span {
+  width: 38px;
+  height: 5px;
+  border-radius: 999px;
+  background: #6d8184;
+}
+
+.stack-avatar__shadow {
+  position: absolute;
+  bottom: 12%;
+  width: 54%;
+  height: 16px;
+  border-radius: 50%;
+  background: rgb(47 66 70 / 16%);
+  filter: blur(4px);
+}
+
+@keyframes stack-idle-sway {
+  0%, 100% {
+    transform: translateY(0) rotate(-1.6deg);
+  }
+  50% {
+    transform: translateY(-5px) rotate(1.6deg);
+  }
+}
+
+@keyframes stack-talk-sway {
+  0%, 100% {
+    transform: translateY(0) rotate(-3deg) scale(1);
+  }
+  50% {
+    transform: translateY(-9px) rotate(3deg) scale(1.035);
+  }
+}
+
+@keyframes stack-think-sway {
+  0%, 100% {
+    transform: translateY(-2px) rotate(-0.8deg);
+  }
+  50% {
+    transform: translateY(-5px) rotate(0.8deg);
+  }
+}
+
+@keyframes stack-blink {
+  0%, 91%, 100% {
+    transform: scaleY(1);
+  }
+  94% {
+    transform: scaleY(0.18);
+  }
+}
+
+@keyframes stack-eye-wander {
+  0%, 100% {
+    translate: 0 0;
+  }
+  38% {
+    translate: 2px -1px;
+  }
+  68% {
+    translate: -2px 1px;
+  }
+}
+
+@keyframes stack-antenna-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 rgb(245 215 110 / 0%);
+    transform: translateX(-50%) scale(1);
+  }
+  50% {
+    box-shadow: 0 0 16px rgb(245 215 110 / 80%);
+    transform: translateX(-50%) scale(1.08);
+  }
+}
+
+@keyframes stack-arm-idle {
+  0%, 100% {
+    rotate: -2deg;
+  }
+  50% {
+    rotate: 8deg;
+  }
+}
+
+@keyframes stack-arm-talk {
+  0%, 100% {
+    translate: 0 0;
+    rotate: -9deg;
+  }
+  50% {
+    translate: 0 -5px;
+    rotate: 14deg;
+  }
+}
