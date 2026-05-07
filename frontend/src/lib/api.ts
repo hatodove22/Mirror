@@ -14,6 +14,7 @@ export interface MirrorSettings {
   maxResponseTokens: number;
   maxSpeechChars: number;
   sttMode: "browser" | "backend";
+  language: "auto" | "ja" | "en";
   autoplay: boolean;
   persistTranscript: boolean;
   shareMicrophoneAudio: boolean;
@@ -81,6 +82,37 @@ export interface SlideSelectionResponse {
 
 const trimBase = (base: string) => base.replace(/\/+$/, "");
 const HISTORY_WINDOW = 8;
+const REQUEST_TIMEOUTS_MS = {
+  transcribe: 45_000,
+  chat: 120_000,
+  speech: 90_000,
+  asset: 60_000,
+  slide: 60_000
+};
+
+const withTimeoutSignal = (signal: AbortSignal | undefined, timeoutMs: number) => {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => {
+    controller.abort(
+      new DOMException(`Request timed out after ${Math.round(timeoutMs / 1000)} seconds.`, "TimeoutError")
+    );
+  }, timeoutMs);
+
+  const abortFromParent = () => controller.abort(signal?.reason);
+  if (signal?.aborted) {
+    abortFromParent();
+  } else {
+    signal?.addEventListener("abort", abortFromParent, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      window.clearTimeout(timeout);
+      signal?.removeEventListener("abort", abortFromParent);
+    }
+  };
+};
 
 export const resolveApiAssetUrl = (assetUrl: string, settings: MirrorSettings) => {
   if (/^https?:\/\//i.test(assetUrl)) {
@@ -102,13 +134,15 @@ export const getSlidePageImageUrl = (settings: MirrorSettings, page = 1, width =
   );
 
 const researchPresenterPrompt = (settings: MirrorSettings) => `
-あなたは研究発表を代行する日本語のプレゼンターです。
-回答は必ず自然な日本語の話し言葉にしてください。
-読み上げるため、最大${settings.maxSpeechChars}文字を目安に短く答えてください。
-絵文字、Markdown、箇条書き、URL、コードブロック、読みにくい記号は使わないでください。
-根拠スライドが渡された場合は、その内容だけを根拠に答えてください。
-根拠にない内容は推測せず、「このスライドからは断定できません」と短く述べてください。
-回答の冒頭で、必要に応じて「この点は何ページの内容です」と自然に示してください。
+You are a multilingual research-presentation assistant.
+${settings.language === "ja" ? "Always answer in natural spoken Japanese." : ""}
+${settings.language === "en" ? "Always answer in natural spoken English." : ""}
+${settings.language === "auto" ? "Answer in the same language as the user's latest message. Use Japanese for Japanese input and English for English input." : ""}
+Keep the answer concise for speech playback, around ${settings.maxSpeechChars} characters or fewer when possible.
+Do not use emoji, Markdown, bullet lists, URLs, code blocks, or symbols that are awkward to read aloud.
+If evidence slides are provided, answer only from that evidence.
+If the evidence is insufficient, briefly say that the slides do not establish the answer.
+When useful, naturally mention the relevant page number near the beginning.
 `.trim();
 const sanitizeAssistantText = (text: string, maxChars: number) => {
   const cleaned = text
@@ -148,14 +182,20 @@ export async function transcribeAudio(
 ): Promise<TranscribeResponse> {
   const form = new FormData();
   form.append("file", audioBlob, "utterance.webm");
+  form.append("language", settings.language);
+  const request = withTimeoutSignal(signal, REQUEST_TIMEOUTS_MS.transcribe);
 
-  const response = await fetch(`${trimBase(settings.endpointBase)}/transcribe`, {
-    method: "POST",
-    body: form,
-    signal
-  });
+  try {
+    const response = await fetch(`${trimBase(settings.endpointBase)}/transcribe`, {
+      method: "POST",
+      body: form,
+      signal: request.signal
+    });
 
-  return parseJson<TranscribeResponse>(response);
+    return parseJson<TranscribeResponse>(response);
+  } finally {
+    request.cleanup();
+  }
 }
 
 export async function sendChat(
@@ -168,33 +208,39 @@ export async function sendChat(
   const recentMessages = messages
     .filter((message) => message.role !== "system")
     .slice(evidenceOnly ? -1 : -HISTORY_WINDOW);
+  const request = withTimeoutSignal(signal, REQUEST_TIMEOUTS_MS.chat);
 
-  const response = await fetch(`${trimBase(settings.endpointBase)}/chat`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      messages: [
-        { role: "system", content: researchPresenterPrompt(settings) },
-        ...(extraContext ? [{ role: "system" as const, content: extraContext }] : []),
-        ...recentMessages.map(({ role, content }) => ({ role, content }))
-      ],
-      model: settings.model,
-      stream: false,
-      think: false,
-      keep_alive: "10m",
-      options: {
-        num_ctx: 2048,
-        num_predict: settings.maxResponseTokens,
-        temperature: 0.35,
-        repeat_penalty: 1.08
-      }
-    }),
-    signal
-  });
-
-  const data = await parseJson<ChatResponse>(response);
+  const data = await (async () => {
+    try {
+      const response = await fetch(`${trimBase(settings.endpointBase)}/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          messages: [
+            { role: "system", content: researchPresenterPrompt(settings) },
+            ...(extraContext ? [{ role: "system" as const, content: extraContext }] : []),
+            ...recentMessages.map(({ role, content }) => ({ role, content }))
+          ],
+          model: settings.model,
+          stream: false,
+          think: false,
+          keep_alive: "10m",
+          options: {
+            num_ctx: 2048,
+            num_predict: settings.maxResponseTokens,
+            temperature: 0.35,
+            repeat_penalty: 1.08
+          }
+        }),
+        signal: request.signal
+      });
+      return await parseJson<ChatResponse>(response);
+    } finally {
+      request.cleanup();
+    }
+  })();
   const content = sanitizeAssistantText(
     data.message?.content ?? data.text ?? data.response ?? "",
     settings.maxSpeechChars
@@ -217,24 +263,29 @@ export async function speakText(
   settings: MirrorSettings,
   signal?: AbortSignal
 ): Promise<Blob> {
-  const response = await fetch(`${trimBase(settings.endpointBase)}/speak`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      text,
-      voice: settings.voice
-    }),
-    signal
-  });
+  const request = withTimeoutSignal(signal, REQUEST_TIMEOUTS_MS.speech);
+  try {
+    const response = await fetch(`${trimBase(settings.endpointBase)}/speak`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        text,
+        voice: settings.voice
+      }),
+      signal: request.signal
+    });
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(detail || `Speech request failed with ${response.status}`);
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(detail || `Speech request failed with ${response.status}`);
+    }
+
+    return await response.blob();
+  } finally {
+    request.cleanup();
   }
-
-  return response.blob();
 }
 
 export async function cacheSpeech(
@@ -242,19 +293,24 @@ export async function cacheSpeech(
   settings: MirrorSettings,
   signal?: AbortSignal
 ): Promise<SpeechCacheResponse> {
-  const response = await fetch(`${trimBase(settings.endpointBase)}/speech/cache`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      text,
-      voice: settings.voice
-    }),
-    signal
-  });
+  const request = withTimeoutSignal(signal, REQUEST_TIMEOUTS_MS.speech);
+  try {
+    const response = await fetch(`${trimBase(settings.endpointBase)}/speech/cache`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        text,
+        voice: settings.voice
+      }),
+      signal: request.signal
+    });
 
-  return parseJson<SpeechCacheResponse>(response);
+    return await parseJson<SpeechCacheResponse>(response);
+  } finally {
+    request.cleanup();
+  }
 }
 
 export async function fetchApiAssetBlob(
@@ -262,14 +318,19 @@ export async function fetchApiAssetBlob(
   settings: MirrorSettings,
   signal?: AbortSignal
 ): Promise<Blob> {
-  const response = await fetch(resolveApiAssetUrl(assetUrl, settings), { signal });
+  const request = withTimeoutSignal(signal, REQUEST_TIMEOUTS_MS.asset);
+  try {
+    const response = await fetch(resolveApiAssetUrl(assetUrl, settings), { signal: request.signal });
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(detail || `Asset request failed with ${response.status}`);
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(detail || `Asset request failed with ${response.status}`);
+    }
+
+    return await response.blob();
+  } finally {
+    request.cleanup();
   }
-
-  return response.blob();
 }
 
 export async function controlSlide(
@@ -277,18 +338,23 @@ export async function controlSlide(
   settings: MirrorSettings,
   signal?: AbortSignal
 ): Promise<void> {
-  const response = await fetch(`${trimBase(settings.endpointBase)}/slides/action`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ action }),
-    signal
-  });
+  const request = withTimeoutSignal(signal, REQUEST_TIMEOUTS_MS.slide);
+  try {
+    const response = await fetch(`${trimBase(settings.endpointBase)}/slides/action`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ action }),
+      signal: request.signal
+    });
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(detail || `Slide action failed with ${response.status}`);
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(detail || `Slide action failed with ${response.status}`);
+    }
+  } finally {
+    request.cleanup();
   }
 }
 
@@ -299,19 +365,29 @@ export async function uploadSlidePdf(
 ): Promise<SlideDeck> {
   const form = new FormData();
   form.append("file", file);
+  const request = withTimeoutSignal(signal, REQUEST_TIMEOUTS_MS.slide);
 
-  const response = await fetch(`${trimBase(settings.endpointBase)}/slides/pdf`, {
-    method: "POST",
-    body: form,
-    signal
-  });
+  try {
+    const response = await fetch(`${trimBase(settings.endpointBase)}/slides/pdf`, {
+      method: "POST",
+      body: form,
+      signal: request.signal
+    });
 
-  return parseJson<SlideDeck>(response);
+    return await parseJson<SlideDeck>(response);
+  } finally {
+    request.cleanup();
+  }
 }
 
 export async function getSlideDeck(settings: MirrorSettings, signal?: AbortSignal): Promise<SlideDeck> {
-  const response = await fetch(`${trimBase(settings.endpointBase)}/slides/deck`, { signal });
-  return parseJson<SlideDeck>(response);
+  const request = withTimeoutSignal(signal, REQUEST_TIMEOUTS_MS.slide);
+  try {
+    const response = await fetch(`${trimBase(settings.endpointBase)}/slides/deck`, { signal: request.signal });
+    return await parseJson<SlideDeck>(response);
+  } finally {
+    request.cleanup();
+  }
 }
 
 export async function selectSlideForQuery(
@@ -320,21 +396,28 @@ export async function selectSlideForQuery(
   signal?: AbortSignal,
   currentPage?: number | null
 ): Promise<SlideSelectionResponse> {
-  const response = await fetch(`${trimBase(settings.endpointBase)}/slides/select`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      query,
-      auto_show: false,
-      top_k: 3,
-      current_page: currentPage ?? undefined,
-    }),
-    signal
-  });
+  const request = withTimeoutSignal(signal, REQUEST_TIMEOUTS_MS.slide);
+  const data = await (async () => {
+    try {
+      const response = await fetch(`${trimBase(settings.endpointBase)}/slides/select`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          query,
+          auto_show: false,
+          top_k: 3,
+          current_page: currentPage ?? undefined,
+        }),
+        signal: request.signal
+      });
 
-  const data = await parseJson<SlideSelectionResponse>(response);
+      return await parseJson<SlideSelectionResponse>(response);
+    } finally {
+      request.cleanup();
+    }
+  })();
   return {
     selected: data.selected,
     candidates: data.candidates?.length ? data.candidates : [data.selected],

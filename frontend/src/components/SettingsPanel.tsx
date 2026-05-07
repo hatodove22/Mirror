@@ -153,6 +153,18 @@ export function SettingsPanel({
           </select>
         </label>
 
+        <label className="field">
+          <span>Language</span>
+          <select
+            value={settings.language}
+            onChange={(event) => update("language", event.target.value as MirrorSettings["language"])}
+          >
+            <option value="auto">Auto match input</option>
+            <option value="ja">Japanese</option>
+            <option value="en">English</option>
+          </select>
+        </label>
+
         <label className="toggle-row">
           <span>Autoplay response</span>
           <input

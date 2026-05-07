@@ -44,6 +44,7 @@ const defaultSettings: MirrorSettings = {
   maxResponseTokens: 96,
   maxSpeechChars: 260,
   sttMode: "browser",
+  language: "auto",
   autoplay: true,
   persistTranscript: false,
   shareMicrophoneAudio: true
@@ -74,12 +75,82 @@ const buildSlideEvidenceContext = (question: string, slides: EvidenceSlide[]) =>
     .join("\n\n");
 
   return [
-    "以下は質問に回答するために検索された根拠スライドです。",
-    "この根拠スライドの内容だけを使って回答してください。",
-    "根拠が不足する場合は、不足していると短く述べてください。",
-    `ユーザーの質問: ${question}`,
+    "Evidence slides retrieved for the user's question follow.",
+    "Use only these evidence slides to answer.",
+    "If the evidence is insufficient, say so briefly in the response language.",
+    `User question: ${question}`,
     evidence,
   ].join("\n\n");
+};
+
+const speechRecognitionLang = (language: MirrorSettings["language"]) => {
+  if (language === "ja") {
+    return "ja-JP";
+  }
+  if (language === "en") {
+    return "en-US";
+  }
+  const browserLanguage = navigator.language || "ja-JP";
+  return browserLanguage.toLowerCase().startsWith("en") ? "en-US" : "ja-JP";
+};
+
+const parseSlideVoiceAction = (text: string): SlideAction | null => {
+  const normalized = text
+    .toLowerCase()
+    .replace(/[.,!?;:'"()[\]{}。、？！]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const compact = normalized.replace(/\s+/g, "");
+
+  const includesAny = (phrases: string[]) =>
+    phrases.some((phrase) => normalized.includes(phrase) || compact.includes(phrase.replace(/\s+/g, "")));
+
+  if (includesAny(["next slide", "go next", "advance slide", "advance", "forward", "next", "次のスライド", "次へ", "次", "進めて", "めくって"])) {
+    return "next";
+  }
+  if (includesAny(["previous slide", "prev slide", "go back", "back slide", "back", "previous", "prev", "前のスライド", "前へ", "戻って", "戻る"])) {
+    return "previous";
+  }
+  if (includesAny(["first slide", "go to first", "beginning", "最初のスライド", "最初", "先頭", "はじめ"])) {
+    return "first";
+  }
+  if (includesAny(["last slide", "final slide", "go to last", "最後のスライド", "最後", "最終"])) {
+    return "last";
+  }
+  if (includesAny(["start slideshow", "start presentation", "begin slideshow", "present slides", "スライドショー開始", "発表開始", "開始して"])) {
+    return "start";
+  }
+  if (includesAny(["stop slideshow", "stop presentation", "end slideshow", "exit slideshow", "スライドショー終了", "発表終了", "終了して"])) {
+    return "stop";
+  }
+
+  return null;
+};
+
+const computeSlidePageFromDeck = (
+  pages: SlideDeck["pages"],
+  current: number | null,
+  action: SlideAction
+) => {
+  if (pages.length === 0) {
+    return current;
+  }
+  const first = pages[0]?.page ?? null;
+  const last = pages[pages.length - 1]?.page ?? first;
+  if (action === "start" || action === "first") {
+    return first;
+  }
+  if (action === "last") {
+    return last;
+  }
+  const currentIndex = Math.max(0, pages.findIndex((page) => page.page === current));
+  if (action === "next") {
+    return pages[Math.min(pages.length - 1, currentIndex + 1)]?.page ?? current;
+  }
+  if (action === "previous") {
+    return pages[Math.max(0, currentIndex - 1)]?.page ?? current;
+  }
+  return current;
 };
 export default function App() {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -117,6 +188,7 @@ export default function App() {
   const lastAudioUrlRef = useRef<string | undefined>(undefined);
   const flowAbortRef = useRef<AbortController | null>(null);
   const flowIdRef = useRef(0);
+  const runTextConversationRef = useRef<((text: string, source: "browser" | "backend" | "keyboard") => Promise<void>) | null>(null);
   const activeSlidePageRef = useRef<number | null>(null);
   const slideDeckRef = useRef<SlideDeck>({ filename: "", pages: [] });
   const lastUserInteractionAtRef = useRef(Date.now());
@@ -326,18 +398,25 @@ export default function App() {
         setPlaybackLevel(Math.min(1, average / 128));
         analyserFrameRef.current = requestAnimationFrame(tick);
       };
-
-      audio.onended = () => {
+      let playbackSettled = false;
+      const finishPlayback = (message: string) => {
+        if (playbackSettled) {
+          return;
+        }
+        playbackSettled = true;
         clearEvidenceSequence();
         stopAnalyser();
         setStatus(shouldListenRef.current ? "listening" : "idle");
-        log("Playback finished.");
+        log(message);
         onDone?.();
       };
+
+      audio.onended = () => {
+        finishPlayback("Playback finished.");
+      };
       audio.onerror = () => {
-        clearEvidenceSequence();
-        stopAnalyser();
-        onDone?.();
+        setError("Response audio could not be played.");
+        finishPlayback("Response audio playback failed.");
       };
 
       setStatus("speaking");
@@ -360,15 +439,12 @@ export default function App() {
           }
         }
       } catch (caught) {
-        clearEvidenceSequence();
-        stopAnalyser();
         const message =
           caught instanceof Error
             ? `Browser blocked audio playback: ${caught.message}. Click Replay once to unlock it.`
             : "Browser blocked audio playback. Click Replay once to unlock it.";
         setError(message);
-        log(message);
-        onDone?.();
+        finishPlayback(message);
       }
     },
     [clearEvidenceSequence, log, startEvidenceSequence, stopAnalyser, unlockAudio]
@@ -389,11 +465,60 @@ export default function App() {
     restartListeningIfNeeded();
   }, [clearEvidenceSequence, log, restartListeningIfNeeded, stopAnalyser]);
 
+  const runSlideAction = useCallback(
+    async (action: SlideAction, source: "voice" | "button" = "button") => {
+      try {
+        flowIdRef.current += 1;
+        flowAbortRef.current?.abort();
+        flowAbortRef.current = null;
+        audioRef.current?.pause();
+        audioRef.current = null;
+        clearEvidenceSequence();
+        stopAnalyser();
+        busyRef.current = false;
+        qaCountdownUntilRef.current = null;
+        setQaCountdownUntil(null);
+        setQaCountdownRemainingMs(0);
+        setEvidenceDisplayPage(null);
+        setStatus(shouldListenRef.current ? "listening" : "idle");
+        await controlSlide(action, settingsRef.current);
+        const nextPage = computeSlidePageFromDeck(slideDeckRef.current.pages, activeSlidePageRef.current, action);
+        activeSlidePageRef.current = nextPage;
+        setActiveSlidePage(nextPage);
+        setEvidenceSlides([]);
+        setEvidenceDisplayPage(null);
+        autoPresenterRef.current = {
+          nextPage: nextPage ?? autoPresenterRef.current.nextPage,
+        };
+        lastUserInteractionAtRef.current = Date.now();
+        setTranscriptDraft("");
+        log(`${source === "voice" ? "Voice slide action" : "Slide action"}: ${action}`);
+        restartListeningIfNeeded();
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : "Slide action failed.";
+        busyRef.current = false;
+        setError(message);
+        setStatus("error");
+        log(message);
+        restartListeningIfNeeded();
+      }
+    },
+    [clearEvidenceSequence, log, restartListeningIfNeeded, stopAnalyser]
+  );
+
   const runTextConversation = useCallback(
     async (text: string, source: "browser" | "backend" | "keyboard") => {
       const cleanText = text.trim();
       if (!cleanText) {
         restartListeningIfNeeded();
+        return;
+      }
+
+      const slideAction = parseSlideVoiceAction(cleanText);
+      if (slideAction) {
+        setTranscriptDraft(cleanText);
+        log(source === "keyboard" ? `Typed slide command: ${cleanText}` : `Recognized slide command via ${source}: ${cleanText}`);
+        await runSlideAction(slideAction, "voice");
         return;
       }
 
@@ -422,7 +547,8 @@ export default function App() {
         let slideContext = "";
         let hasSlideEvidence = false;
         let currentEvidence: EvidenceSlide[] = [];
-        if (slideDeck.pages.length > 0) {
+        const deckPages = slideDeckRef.current.pages;
+        if (deckPages.length > 0) {
           const selection = await selectSlideForQuery(
             cleanText,
             settingsRef.current,
@@ -520,36 +646,58 @@ export default function App() {
         restartListeningIfNeeded();
       }
     },
-    [log, pauseCaptureForSpeech, playAudioBlob, restartListeningIfNeeded, slideDeck.pages, stopAnalyser]
+    [log, pauseCaptureForSpeech, playAudioBlob, restartListeningIfNeeded, runSlideAction, stopAnalyser]
   );
+
+  useEffect(() => {
+    runTextConversationRef.current = runTextConversation;
+  }, [runTextConversation]);
 
   const runAudioConversation = useCallback(
     async (audioBlob: Blob) => {
       if (!settingsRef.current.shareMicrophoneAudio) {
         setError("Microphone sharing is disabled in Privacy.");
-        setStatus("idle");
+        setStatus(shouldListenRef.current ? "listening" : "idle");
         log("Blocked transcription because microphone sharing is off.");
+        restartListeningIfNeeded();
         return;
       }
 
       try {
+        const flowId = ++flowIdRef.current;
+        flowAbortRef.current?.abort();
+        const abortController = new AbortController();
+        flowAbortRef.current = abortController;
         busyRef.current = true;
         setError(undefined);
         setStatus("transcribing");
         log("Sending audio window for local transcription.");
-        const transcription = await transcribeAudio(audioBlob, settingsRef.current);
+        const transcription = await transcribeAudio(audioBlob, settingsRef.current, abortController.signal);
+        if (flowId !== flowIdRef.current) {
+          return;
+        }
         busyRef.current = false;
+        flowAbortRef.current = null;
 
         if (!transcription.text.trim()) {
           log(transcription.message ?? "No speech was detected in the audio window.");
+          setStatus(shouldListenRef.current ? "listening" : "idle");
           restartListeningIfNeeded();
           return;
         }
 
         await runTextConversation(transcription.text, "backend");
       } catch (caught) {
+        if (caught instanceof DOMException && caught.name === "AbortError") {
+          busyRef.current = false;
+          flowAbortRef.current = null;
+          setStatus(shouldListenRef.current ? "listening" : "idle");
+          restartListeningIfNeeded();
+          return;
+        }
         const message = caught instanceof Error ? caught.message : "Transcription failed.";
         busyRef.current = false;
+        flowAbortRef.current = null;
         setError(message);
         setStatus("error");
         log(message);
@@ -560,7 +708,7 @@ export default function App() {
   );
 
   const configureBrowserRecognition = useCallback(() => {
-    const recognition = createBrowserSpeechRecognition("ja-JP");
+    const recognition = createBrowserSpeechRecognition(speechRecognitionLang(settingsRef.current.language));
     if (!recognition) {
       return null;
     }
@@ -617,12 +765,12 @@ export default function App() {
 
       if (finalText.trim()) {
         recognition.stop();
-        void runTextConversation(finalText, "browser");
+        void runTextConversationRef.current?.(finalText, "browser");
       }
     };
 
     return recognition;
-  }, [log, restartListeningIfNeeded, runTextConversation]);
+  }, [log, restartListeningIfNeeded]);
 
   async function startBackendAudioWindow() {
     if (!shouldListenRef.current || busyRef.current || recorderRef.current?.state === "recording") {
@@ -898,62 +1046,11 @@ export default function App() {
     await playPreparedNarration(narration, `Explaining slide ${slide.page}: ${slide.title}`, slide.page);
   }, [activeSlidePage, log, playPreparedNarration, slideDeck.pages]);
 
-  const computeSlidePage = useCallback((current: number | null, action: SlideAction) => {
-    const pages = slideDeckRef.current.pages;
-    if (pages.length === 0) {
-      return current;
-    }
-    const first = pages[0]?.page ?? null;
-    const last = pages[pages.length - 1]?.page ?? first;
-    if (action === "start" || action === "first") {
-      return first;
-    }
-    if (action === "last") {
-      return last;
-    }
-    const currentIndex = Math.max(0, pages.findIndex((page) => page.page === current));
-    if (action === "next") {
-      return pages[Math.min(pages.length - 1, currentIndex + 1)]?.page ?? current;
-    }
-    if (action === "previous") {
-      return pages[Math.max(0, currentIndex - 1)]?.page ?? current;
-    }
-    return current;
-  }, []);
-
   const handleSlideAction = useCallback(
     async (action: SlideAction) => {
-      try {
-        flowIdRef.current += 1;
-        flowAbortRef.current?.abort();
-        flowAbortRef.current = null;
-        audioRef.current?.pause();
-        audioRef.current = null;
-        stopAnalyser();
-        busyRef.current = false;
-        qaCountdownUntilRef.current = null;
-        setQaCountdownUntil(null);
-        setQaCountdownRemainingMs(0);
-        setEvidenceDisplayPage(null);
-        setStatus(shouldListenRef.current ? "listening" : "idle");
-        await controlSlide(action, settingsRef.current);
-        const nextPage = computeSlidePage(activeSlidePageRef.current, action);
-        activeSlidePageRef.current = nextPage;
-        setActiveSlidePage(nextPage);
-        setEvidenceSlides([]);
-        setEvidenceDisplayPage(null);
-        autoPresenterRef.current = {
-          nextPage: nextPage ?? autoPresenterRef.current.nextPage,
-        };
-        lastUserInteractionAtRef.current = Date.now();
-        log(`Slide action: ${action}`);
-      } catch (caught) {
-        const message = caught instanceof Error ? caught.message : "Slide action failed.";
-        setError(message);
-        log(message);
-      }
+      await runSlideAction(action, "button");
     },
-    [computeSlidePage, log, stopAnalyser]
+    [runSlideAction]
   );
 
   const runIdlePresenterStep = useCallback(async () => {
@@ -983,7 +1080,7 @@ export default function App() {
     const isLastPage = autoPage.page === lastPage;
     autoPresenterRef.current.nextPage = isLastPage
       ? firstPage
-      : computeSlidePage(autoPage.page, "next") ?? autoPage.page;
+      : computeSlidePageFromDeck(pages, autoPage.page, "next") ?? autoPage.page;
     if (!autoNarration) {
       if (isLastPage) {
         startFinalQaCountdown();
@@ -1007,15 +1104,16 @@ export default function App() {
       }
     );
     return;
-  }, [computeSlidePage, playPreparedNarration, startFinalQaCountdown]);
+  }, [playPreparedNarration, startFinalQaCountdown]);
 
   const handleSettingsChange = useCallback(
     (nextSettings: MirrorSettings) => {
       const sttModeChanged = nextSettings.sttMode !== settingsRef.current.sttMode;
+      const languageChanged = nextSettings.language !== settingsRef.current.language;
       settingsRef.current = nextSettings;
       setSettings(nextSettings);
 
-      if (sttModeChanged && shouldListenRef.current) {
+      if ((sttModeChanged || languageChanged) && shouldListenRef.current) {
         recognitionRef.current?.abort();
         recognitionRef.current = null;
         if (recorderRef.current?.state === "recording") {

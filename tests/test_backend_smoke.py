@@ -80,6 +80,20 @@ def test_slide_select_returns_ranked_candidates():
     assert "evidence_text" in payload["candidates"][0]
 
 
+def test_slide_select_handles_japanese_query_without_spaces():
+    response = client.post(
+        "/api/slides/select",
+        json={"query": "柔らかさについて教えて", "auto_show": False, "top_k": 3, "current_page": 1},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["selected"]["page"] == 21
+    assert 21 in {candidate["page"] for candidate in payload["candidates"]}
+    assert payload["selected"]["score"] > 0
+    assert any(candidate["score"] > 0 for candidate in payload["candidates"])
+
+
 def test_slide_select_keeps_current_page_when_query_has_no_match():
     response = client.post(
         "/api/slides/select",

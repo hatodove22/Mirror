@@ -34,12 +34,58 @@ Current scope: 197 points
 | Sequential evidence + wait avatar | 4 | 0 | Added answer-time evidence slide sequencing, centered Stack-chan Q&A wait state, and immediate auto narration advance. Scope increased by 4pt. |
 
 ```mermaid
+%%{init: {
+  "xyChart": {
+    "chartWidth": 1100,
+    "chartHeight": 420,
+    "titleFontSize": 18,
+    "xAxis": {
+      "labelFontSize": 13,
+      "titleFontSize": 13,
+      "labelPadding": 8
+    },
+    "yAxis": {
+      "labelFontSize": 13,
+      "titleFontSize": 14,
+      "labelPadding": 8
+    },
+    "plotReservedSpacePercent": 70
+  }
+}}%%
 xychart-beta
   title "Mirror MVP Burndown"
-  x-axis ["Start", "Vertical Slice", "Live Fixes", "Ollama", "VibeVoice", "Presenter Pivot", "PDF/Interrupt", "Prompt/Survey", "Launcher", "Default Deck", "MuseTalk", "Pre-render", "Clip Playback", "Presenter Loop", "Wav2Lip", "Stack Avatar", "Cleanup", "Final QA", "RAG Polish", "Keyboard", "Slide Fix", "Evidence", "Sequence"]
+  x-axis ["S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "S12", "S13", "S14", "S15", "S16", "S17", "S18", "S19", "S20", "S21", "S22"]
   y-axis "Remaining points" 0 --> 120
   line [118, 29, 18, 14, 5, 16, 11, 11, 11, 11, 11, 9, 6, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0]
 ```
+
+### Burndown Milestone Labels
+
+| Label | Session |
+| --- | --- |
+| S0 | Start |
+| S1 | Vertical Slice |
+| S2 | Live Fixes |
+| S3 | Ollama |
+| S4 | VibeVoice |
+| S5 | Presenter Pivot |
+| S6 | PDF/Interrupt |
+| S7 | Prompt/Survey |
+| S8 | Launcher |
+| S9 | Default Deck |
+| S10 | MuseTalk |
+| S11 | Pre-render |
+| S12 | Clip Playback |
+| S13 | Presenter Loop |
+| S14 | Wav2Lip |
+| S15 | Stack Avatar |
+| S16 | Cleanup |
+| S17 | Final QA |
+| S18 | RAG Polish |
+| S19 | Keyboard |
+| S20 | Slide Fix |
+| S21 | Evidence |
+| S22 | Sequence |
 
 ## Time Log
 
