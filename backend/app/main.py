@@ -53,6 +53,18 @@ DEFAULT_SLIDE_JSON = Path(
         str(PROJECT_ROOT / "data" / "decks" / "general-meeting" / "General Meeting.json"),
     )
 )
+DEFAULT_SLIDE_VIDEO = Path(
+    os.getenv(
+        "MIRROR_DEFAULT_SLIDE_VIDEO",
+        str(DEFAULT_SLIDE_PDF.with_suffix(".mp4")),
+    )
+)
+DEFAULT_SLIDE_VIDEO_CUES = Path(
+    os.getenv(
+        "MIRROR_DEFAULT_SLIDE_VIDEO_CUES",
+        str(DEFAULT_SLIDE_PDF.with_suffix(".video.json")),
+    )
+)
 AVATAR_ENGINE = os.getenv("MIRROR_AVATAR_ENGINE", "stack-chan").strip().lower()
 MUSE_TALK_DIR = Path(os.getenv("MIRROR_MUSETALK_DIR", str(PROJECT_ROOT / "third_party" / "MuseTalk")))
 MUSE_TALK_PYTHON = Path(
@@ -82,6 +94,12 @@ _SLIDE_DECK: dict[str, Any] = {
     "opening_script": "",
     "closing_script": "",
     "qa_index": [],
+    "video_path": "",
+    "video_paths": {},
+    "video_url": "",
+    "video_urls": {},
+    "video_cues": [],
+    "video_cues_by_language": {},
 }
 
 
@@ -589,6 +607,12 @@ async def upload_slide_pdf(file: UploadFile = File(...)) -> dict[str, Any]:
     _SLIDE_DECK["opening_script"] = ""
     _SLIDE_DECK["closing_script"] = ""
     _SLIDE_DECK["qa_index"] = []
+    _SLIDE_DECK["video_path"] = ""
+    _SLIDE_DECK["video_paths"] = {}
+    _SLIDE_DECK["video_url"] = ""
+    _SLIDE_DECK["video_urls"] = {}
+    _SLIDE_DECK["video_cues"] = []
+    _SLIDE_DECK["video_cues_by_language"] = {}
     return {
         "ok": True,
         "filename": _SLIDE_DECK["filename"],
@@ -608,6 +632,10 @@ async def slide_deck() -> dict[str, Any]:
         "opening_script": _SLIDE_DECK["opening_script"],
         "closing_script": _SLIDE_DECK["closing_script"],
         "qa_index": _SLIDE_DECK["qa_index"],
+        "video_url": _SLIDE_DECK["video_url"],
+        "video_urls": _SLIDE_DECK["video_urls"],
+        "video_cues": _SLIDE_DECK["video_cues"],
+        "video_cues_by_language": _SLIDE_DECK["video_cues_by_language"],
     }
 
 
@@ -617,6 +645,24 @@ async def default_slide_pdf() -> FileResponse:
     if not pdf_path.is_file():
         raise HTTPException(status_code=404, detail="Default slide PDF is not configured.")
     return FileResponse(pdf_path, media_type="application/pdf", filename=pdf_path.name)
+
+
+@app.get("/api/slides/video")
+async def slide_video() -> FileResponse:
+    video_path = Path(_SLIDE_DECK["video_path"])
+    if not video_path.is_file():
+        raise HTTPException(status_code=404, detail="Slide video is not configured.")
+    return FileResponse(video_path, media_type="video/mp4", filename=video_path.name)
+
+
+@app.get("/api/slides/video/{language}")
+async def slide_video_for_language(language: Literal["ja", "jp", "en"]) -> FileResponse:
+    key = "ja" if language == "jp" else language
+    video_paths = _SLIDE_DECK.get("video_paths", {})
+    video_path = Path(str(video_paths.get(key, "")))
+    if not video_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Slide video is not configured for {key}.")
+    return FileResponse(video_path, media_type="video/mp4", filename=video_path.name)
 
 
 @app.get("/api/slides/page/{page}.png")
@@ -774,6 +820,7 @@ def _load_default_slide_deck() -> None:
             _SLIDE_DECK["opening_script"] = str(payload.get("opening_script", ""))
             _SLIDE_DECK["closing_script"] = str(payload.get("closing_script", ""))
             _SLIDE_DECK["qa_index"] = payload.get("qa_index", [])
+            _load_default_slide_video_metadata()
             return
 
     if DEFAULT_SLIDE_PDF.is_file():
@@ -782,6 +829,153 @@ def _load_default_slide_deck() -> None:
         _SLIDE_DECK["pages"] = pages
         _SLIDE_DECK["source"] = "default-pdf"
         _SLIDE_DECK["pdf_path"] = str(DEFAULT_SLIDE_PDF)
+        _SLIDE_DECK["deck_title"] = ""
+        _SLIDE_DECK["deck_goal"] = ""
+        _SLIDE_DECK["opening_script"] = ""
+        _SLIDE_DECK["closing_script"] = ""
+        _SLIDE_DECK["qa_index"] = []
+        _load_default_slide_video_metadata()
+
+
+def _load_default_slide_video_metadata() -> None:
+    _SLIDE_DECK["video_path"] = ""
+    _SLIDE_DECK["video_paths"] = {}
+    _SLIDE_DECK["video_url"] = ""
+    _SLIDE_DECK["video_urls"] = {}
+    _SLIDE_DECK["video_cues"] = []
+    _SLIDE_DECK["video_cues_by_language"] = {}
+
+    video_paths = _default_slide_video_paths()
+    if not video_paths:
+        return
+
+    default_language = "ja" if "ja" in video_paths else sorted(video_paths)[0]
+    default_video_path = video_paths[default_language]
+    common_cues = _load_video_cues(DEFAULT_SLIDE_VIDEO_CUES)
+    cues_by_language = {
+        language: cues
+        for language, cues in (
+            (language, _load_video_cues(_video_cue_path_for(video_path)))
+            for language, video_path in video_paths.items()
+        )
+        if cues
+    }
+
+    _SLIDE_DECK["video_path"] = str(default_video_path)
+    _SLIDE_DECK["video_paths"] = {language: str(path) for language, path in video_paths.items()}
+    _SLIDE_DECK["video_url"] = "/api/slides/video"
+    _SLIDE_DECK["video_urls"] = {
+        language: f"/api/slides/video/{language}"
+        for language in video_paths
+    }
+    _SLIDE_DECK["video_cues"] = common_cues or cues_by_language.get(default_language, [])
+    _SLIDE_DECK["video_cues_by_language"] = cues_by_language
+
+
+def _default_slide_video_paths() -> dict[str, Path]:
+    if DEFAULT_SLIDE_VIDEO.is_file():
+        return {"ja": DEFAULT_SLIDE_VIDEO}
+
+    deck_dir = DEFAULT_SLIDE_PDF.parent
+    root_dir = PROJECT_ROOT
+    stem = DEFAULT_SLIDE_PDF.stem
+    candidates: dict[str, list[Path]] = {
+        "ja": [
+            deck_dir / f"{stem}_JP.mp4",
+            deck_dir / f"{stem}_JA.mp4",
+            deck_dir / f"{stem}.ja.mp4",
+            root_dir / f"{stem}_JP.mp4",
+            root_dir / f"{stem}_JA.mp4",
+            root_dir / f"{stem}.ja.mp4",
+        ],
+        "en": [
+            deck_dir / f"{stem}_EN.mp4",
+            deck_dir / f"{stem}.en.mp4",
+            root_dir / f"{stem}_EN.mp4",
+            root_dir / f"{stem}.en.mp4",
+        ],
+    }
+    paths: dict[str, Path] = {}
+    for language, language_candidates in candidates.items():
+        match = next((candidate for candidate in language_candidates if candidate.is_file()), None)
+        if match is not None:
+            paths[language] = match
+    return paths
+
+
+def _video_cue_path_for(video_path: Path) -> Path:
+    name = video_path.name
+    if name.endswith("_JP.mp4"):
+        return video_path.with_name(f"{name[:-4]}.video.json")
+    if name.endswith("_JA.mp4"):
+        return video_path.with_name(f"{name[:-4]}.video.json")
+    if name.endswith("_EN.mp4"):
+        return video_path.with_name(f"{name[:-4]}.video.json")
+    return video_path.with_suffix(".video.json")
+
+
+def _load_video_cues(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    with path.open("r", encoding="utf-8") as handle:
+        return _normalize_video_cues(json.load(handle))
+
+
+def _normalize_video_cues(payload: Any) -> list[dict[str, Any]]:
+    raw_cues = payload
+    if isinstance(payload, dict):
+        raw_cues = payload.get("video_cues") or payload.get("cues") or payload.get("slides") or []
+    if not isinstance(raw_cues, list):
+        return []
+
+    cues: list[dict[str, Any]] = []
+    for item in raw_cues:
+        if not isinstance(item, dict):
+            continue
+        page = _parse_positive_int(item.get("page") or item.get("slide") or item.get("slide_page"))
+        start_sec = _parse_time_seconds(item.get("start_sec") or item.get("start") or item.get("time"))
+        if page is None or start_sec is None:
+            continue
+        end_sec = _parse_time_seconds(item.get("end_sec") or item.get("end"))
+        cue: dict[str, Any] = {
+            "page": page,
+            "start_sec": start_sec,
+        }
+        if end_sec is not None and end_sec > start_sec:
+            cue["end_sec"] = end_sec
+        if item.get("title"):
+            cue["title"] = str(item["title"])
+        cues.append(cue)
+
+    cues.sort(key=lambda cue: (cue["page"], cue["start_sec"]))
+    return cues
+
+
+def _parse_positive_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _parse_time_seconds(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, int | float):
+        return float(value) if value >= 0 else None
+    text = str(value).strip()
+    if not text:
+        return None
+    if re.fullmatch(r"\d+(?:\.\d+)?", text):
+        return float(text)
+    parts = text.split(":")
+    if not all(re.fullmatch(r"\d+(?:\.\d+)?", part.strip()) for part in parts):
+        return None
+    seconds = 0.0
+    for part in parts:
+        seconds = seconds * 60 + float(part.strip())
+    return seconds
 
 
 def _normalize_prepared_slide(slide: dict[str, Any]) -> dict[str, Any]:

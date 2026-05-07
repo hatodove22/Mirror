@@ -22,6 +22,8 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 - `MIRROR_VOICEVOX_URL`: optional VOICEVOX engine URL for voices such as Zundamon. Defaults to `http://127.0.0.1:50021`.
 - `MIRROR_VOICEVOX_SPEAKER`: default VOICEVOX speaker id. Defaults to `3`.
 - `MIRROR_FFMPEG_PATH`: optional explicit ffmpeg executable path; winget `Gyan.FFmpeg` is auto-detected.
+- `MIRROR_DEFAULT_SLIDE_VIDEO`: optional prepared MP4 path. If unset, Mirror detects JP/EN videos beside the default deck or at the project root.
+- `MIRROR_DEFAULT_SLIDE_VIDEO_CUES`: optional JSON cue file for mapping slide pages to video times.
 - `BACKEND_CORS_ORIGINS`: comma-separated allowed origins. Defaults to `*`.
 - `BACKEND_REQUEST_TIMEOUT_SECONDS`: upstream timeout for non-streaming calls. Defaults to `120`.
 
@@ -33,4 +35,18 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 - `POST /api/speak`: speech adapter. Accepts `{ "text": "...", "voice": "optional" }`, normalizes text for reading, splits long text, and returns `audio/wav`.
 - `POST /api/slides/action`: sends Windows slide-control keys for `next`, `previous`, `first`, `last`, `start`, or `stop`.
 - `POST /api/slides/select`: ranks relevant slide evidence for a question and returns the selected slide plus candidate slides.
+- `GET /api/slides/deck`: returns the active deck, prepared video URLs, and optional video cues.
+- `GET /api/slides/video`: serves the default prepared MP4 when configured.
+- `GET /api/slides/video/{language}`: serves the prepared `ja`/`en` MP4 for language-specific presentation playback.
 - `GET /api/slides/page/{page}.png`: renders the active PDF slide page to a cached PNG for in-app display.
+
+## Prepared Slide Videos
+
+For the default General Meeting deck, Mirror detects these files without additional configuration:
+
+```text
+General Meeting_JP.mp4
+General Meeting_EN.mp4
+```
+
+Optional cue files can be added as `General Meeting_JP.video.json` and `General Meeting_EN.video.json`. If cues are absent, the frontend treats the selected language video as a full presentation video. During Q&A the frontend switches back to PDF slide PNGs for evidence display.

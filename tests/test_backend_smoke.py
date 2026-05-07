@@ -151,6 +151,97 @@ def test_slide_page_image_renders_default_pdf():
     assert response.content.startswith(b"\x89PNG")
 
 
+def test_slide_deck_can_report_prepared_video_metadata(tmp_path, monkeypatch):
+    video = tmp_path / "deck.mp4"
+    cues = tmp_path / "deck.video.json"
+    video.write_bytes(b"mp4")
+    cues.write_text(
+        '{"video_cues": [{"page": 1, "start": "0:03", "end": "0:08", "title": "Opening"}]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(main, "DEFAULT_SLIDE_VIDEO", video)
+    monkeypatch.setattr(main, "DEFAULT_SLIDE_VIDEO_CUES", cues)
+    original_video_path = main._SLIDE_DECK["video_path"]
+    original_video_paths = main._SLIDE_DECK["video_paths"]
+    original_video_url = main._SLIDE_DECK["video_url"]
+    original_video_urls = main._SLIDE_DECK["video_urls"]
+    original_video_cues = main._SLIDE_DECK["video_cues"]
+    original_video_cues_by_language = main._SLIDE_DECK["video_cues_by_language"]
+
+    try:
+        main._load_default_slide_video_metadata()
+        response = client.get("/api/slides/deck")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["video_url"] == "/api/slides/video"
+        assert payload["video_urls"] == {"ja": "/api/slides/video/ja"}
+        assert payload["video_cues"] == [{"page": 1, "start_sec": 3.0, "end_sec": 8.0, "title": "Opening"}]
+    finally:
+        main._SLIDE_DECK["video_path"] = original_video_path
+        main._SLIDE_DECK["video_paths"] = original_video_paths
+        main._SLIDE_DECK["video_url"] = original_video_url
+        main._SLIDE_DECK["video_urls"] = original_video_urls
+        main._SLIDE_DECK["video_cues"] = original_video_cues
+        main._SLIDE_DECK["video_cues_by_language"] = original_video_cues_by_language
+
+
+def test_slide_deck_detects_japanese_and_english_video_files(tmp_path, monkeypatch):
+    pdf = tmp_path / "General Meeting.pdf"
+    pdf.write_bytes(b"%PDF")
+    (tmp_path / "General Meeting_JP.mp4").write_bytes(b"jp")
+    (tmp_path / "General Meeting_EN.mp4").write_bytes(b"en")
+    (tmp_path / "General Meeting_EN.video.json").write_text(
+        '{"cues": [{"page": 2, "start_sec": 12}]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(main, "DEFAULT_SLIDE_PDF", pdf)
+    monkeypatch.setattr(main, "DEFAULT_SLIDE_VIDEO", tmp_path / "missing.mp4")
+    monkeypatch.setattr(main, "DEFAULT_SLIDE_VIDEO_CUES", tmp_path / "missing.video.json")
+    monkeypatch.setattr(main, "PROJECT_ROOT", tmp_path)
+    original_video_path = main._SLIDE_DECK["video_path"]
+    original_video_paths = main._SLIDE_DECK["video_paths"]
+    original_video_url = main._SLIDE_DECK["video_url"]
+    original_video_urls = main._SLIDE_DECK["video_urls"]
+    original_video_cues = main._SLIDE_DECK["video_cues"]
+    original_video_cues_by_language = main._SLIDE_DECK["video_cues_by_language"]
+
+    try:
+        main._load_default_slide_video_metadata()
+        response = client.get("/api/slides/deck")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["video_urls"] == {
+            "ja": "/api/slides/video/ja",
+            "en": "/api/slides/video/en",
+        }
+        assert payload["video_cues_by_language"] == {"en": [{"page": 2, "start_sec": 12.0}]}
+    finally:
+        main._SLIDE_DECK["video_path"] = original_video_path
+        main._SLIDE_DECK["video_paths"] = original_video_paths
+        main._SLIDE_DECK["video_url"] = original_video_url
+        main._SLIDE_DECK["video_urls"] = original_video_urls
+        main._SLIDE_DECK["video_cues"] = original_video_cues
+        main._SLIDE_DECK["video_cues_by_language"] = original_video_cues_by_language
+
+
+def test_slide_video_serves_configured_mp4(tmp_path):
+    video = tmp_path / "deck.mp4"
+    video.write_bytes(b"mp4")
+    original_video_path = main._SLIDE_DECK["video_path"]
+
+    try:
+        main._SLIDE_DECK["video_path"] = str(video)
+        response = client.get("/api/slides/video")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "video/mp4"
+        assert response.content == b"mp4"
+    finally:
+        main._SLIDE_DECK["video_path"] = original_video_path
+
+
 def test_wav2lip_cache_only_reports_missing_cached_asset(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "AVATAR_CACHE_DIR", tmp_path)
     monkeypatch.setattr(main, "AVATAR_ENGINE", "wav2lip")

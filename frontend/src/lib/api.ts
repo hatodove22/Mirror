@@ -60,6 +60,13 @@ export interface SlidePageSummary {
   evidence_text?: string;
 }
 
+export interface SlideVideoCue {
+  page: number;
+  start_sec: number;
+  end_sec?: number;
+  title?: string;
+}
+
 export interface SlideDeck {
   filename: string;
   pages: SlidePageSummary[];
@@ -73,6 +80,10 @@ export interface SlideDeck {
     recommended_pages: number[];
     answer_strategy: string;
   }[];
+  video_url?: string;
+  video_urls?: Partial<Record<"ja" | "en", string>>;
+  video_cues?: SlideVideoCue[];
+  video_cues_by_language?: Partial<Record<"ja" | "en", SlideVideoCue[]>>;
 }
 
 export interface SlideSelectionResponse {

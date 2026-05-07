@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-05-04
+Last updated: 2026-05-07
 
 ## Stable MVP State
 
@@ -11,7 +11,10 @@ Mirror now has a runnable vertical slice:
 - Live conversation starts automatically, pauses while Mirror replies, then resumes listening.
 - Keyboard chat input is also available; typed questions use the same RAG slide evidence, LLM answer, and optional speech playback path as voice input.
 - Chat and voice questions no longer send external slideshow start keys during evidence search; if no slide evidence matches, the current slide is kept instead of jumping to the first slide.
-- During Q&A, the primary evidence slide is now the displayed slide image and notes source, not just a badge.
+- Prepared JP/EN presentation videos can be served as the main presentation stage. The current deck detects `General Meeting_JP.mp4` and `General Meeting_EN.mp4`.
+- Presentation mode starts from the prepared video, uses the video's own audio, and does not synthesize narration with TTS.
+- When the presentation video ends, Mirror enters a 3-minute Q&A window. When Q&A ends, the prepared video restarts from the beginning.
+- During Q&A, the primary evidence slide is displayed with the PDF PNG image path, not a video frame.
 - If Q&A evidence spans multiple slides, Mirror cycles through the evidence slides while the answer audio is playing.
 - During the final Q&A wait window, Stack-chan appears centered with a question-waiting speech bubble.
 - Automatic prepared narration now advances to the next slide immediately after speech finishes instead of waiting for another idle delay.
@@ -29,17 +32,40 @@ Mirror now has a runnable vertical slice:
 - Current speech/generation can be interrupted from the conversation panel.
 - Photorealistic lip sync was dropped from the active product path.
 - The default presentation avatar is now a lightweight Stack-chan style robot that lip-flaps from playback volume and gently sways while idle/listening/speaking.
-- The slide panel has an `Explain` action that reads the prepared narration for the current slide without waiting for server-side avatar video rendering.
+- During prepared video playback, the Stack-chan avatar is driven by the video element's Web Audio analyser instead of a fixed animation level.
+- The slide panel has an `Explain` action that plays the prepared video when available, falling back to prepared narration only when no deck video exists.
 - PDF pages are rendered server-side to PNG via PyMuPDF and shown as plain images in the Mirror UI, avoiding browser PDF toolbar/download controls.
 - Slides are now displayed inside the Mirror UI, with the avatar shown as a 16:9 presenter picture-in-picture over the slide area.
-- When no user question arrives, the app loops through prepared slide narration and advances slides; live user turns interrupt and take priority.
-- After the final prepared slide narration finishes, the app enters a 3-minute Q&A window with an on-slide countdown ring, then restarts from the first slide.
+- When no user question arrives and a deck video is available, the app loops between full prepared-video playback and the Q&A window; live user turns interrupt and take priority.
+- If no deck video is available, the previous prepared narration loop remains the fallback.
 - Slide image switching is faster because the frontend preloads the active page, adjacent pages, and evidence candidate pages.
 - The Stack-chan style avatar is more active, with stronger talk sway, antenna glow, eye motion, and small arm movement.
 - ffmpeg is installed and auto-detected for backend Whisper decoding.
 - `Start-Mirror.bat` can be double-clicked to launch the API, frontend, and browser.
 - Heavy experiment worktrees and generated assets for VibeVoice, MuseTalk, Wav2Lip, old avatar photos, and render caches were removed from the stable workspace.
 - Smoke tests and build checks pass.
+
+## Current Runtime Measurements
+
+Measured on 2026-05-07 after starting the local Vite frontend, FastAPI backend, and the already-running Ollama service.
+
+- OS: Windows 11 Home `10.0.26200`, 64-bit.
+- CPU/RAM: Intel Core i7-11700 @ 2.50GHz, about 34GB RAM.
+- Node.js/npm/Python: Node `v24.14.0`, npm `11.9.0`, Python `3.12.10`.
+- Running services: Vite `http://127.0.0.1:5173`, FastAPI `http://127.0.0.1:8004`, Ollama `http://127.0.0.1:11434`.
+- Ollama model: `gemma4:e2b`, Gemma4 family, 5.1B parameters, `Q4_K_M`, about 7.16GB.
+- Vite ready time: about `597ms`.
+- Frontend `/`: average `78.1ms`.
+- Backend `/api/health`: average `131.1ms`.
+- `/api/slides/deck`: average `48.5ms`.
+- `/api/slides/page/1.png?width=640`: average `149.0ms`.
+- `/api/slides/select`: average `24.6ms`.
+- `/api/speak` short Windows SAPI request: average `435.6ms`.
+- JP video 1MB range request: about `15.6ms`.
+- Warmed short LLM chat: average `986.7ms`, median `842.2ms`, min `759.2ms`, max `1491.5ms`.
+- QA-style slide evidence plus Japanese chat: after the first warmup spike, chat responses were about `0.8-0.9s`.
+
+Startup note: the first LLM request after startup can spike to several seconds. A lightweight warmup chat request should stabilize perceived Q&A latency.
 
 ## How to Read These Docs
 

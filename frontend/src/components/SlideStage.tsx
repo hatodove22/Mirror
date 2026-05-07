@@ -1,28 +1,171 @@
 import type { SlideDeck, SlidePageSummary } from "../lib/api";
+import { useEffect, useMemo, useRef } from "react";
 import type { CSSProperties } from "react";
+
+export type SlideStageMode = "presentation" | "qa";
+
+export interface SlideVideoPlaybackRequest {
+  page: number;
+  nonce: number;
+  mode?: "full" | "segment";
+}
+
+export type SlideVideoPlaybackResult = "ended" | "blocked";
 
 interface SlideStageProps {
   deck: SlideDeck;
   activePage: number | null;
   evidenceSlides?: SlidePageSummary[];
   imageUrl: string;
+  mode: SlideStageMode;
+  videoUrl?: string;
+  videoPlaybackRequest?: SlideVideoPlaybackRequest | null;
+  onVideoPlaybackFinished?: (result: SlideVideoPlaybackResult) => void;
+  onVideoPlaybackLevel?: (level: number) => void;
   qaCountdown?: {
     durationMs: number;
     remainingMs: number;
   };
 }
 
-export function SlideStage({ deck, activePage, evidenceSlides = [], imageUrl, qaCountdown }: SlideStageProps) {
+export function SlideStage({
+  deck,
+  activePage,
+  evidenceSlides = [],
+  imageUrl,
+  mode,
+  videoUrl,
+  videoPlaybackRequest,
+  onVideoPlaybackFinished,
+  onVideoPlaybackLevel,
+  qaCountdown
+}: SlideStageProps) {
   const page =
     deck.pages.find((candidate) => candidate.page === activePage) ?? deck.pages[0] ?? null;
   const pageLabel = page ? `${page.page} / ${deck.pages.length}` : "No deck";
   const primaryEvidence = evidenceSlides[0];
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const finishedRequestRef = useRef<number | null>(null);
+  const videoAnalyserFrameRef = useRef<number | null>(null);
+  const activeCue = useMemo(
+    () => deck.video_cues?.find((cue) => cue.page === page?.page) ?? null,
+    [deck.video_cues, page?.page]
+  );
+  const showVideo = mode === "presentation" && Boolean(videoUrl);
   const remainingMs = qaCountdown?.remainingMs ?? 0;
   const isQaActive = remainingMs > 0;
   const progress = qaCountdown ? 1 - remainingMs / qaCountdown.durationMs : 0;
   const countdownStyle = {
     "--qa-progress": `${Math.max(0, Math.min(1, progress)) * 360}deg`,
   } as CSSProperties;
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !showVideo || !onVideoPlaybackLevel) {
+      onVideoPlaybackLevel?.(0);
+      return;
+    }
+
+    const AudioContextCtor =
+      window.AudioContext ??
+      (window as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioContextCtor) {
+      return;
+    }
+
+    const context = new AudioContextCtor();
+    const source = context.createMediaElementSource(video);
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+    analyser.connect(context.destination);
+
+    const samples = new Uint8Array(analyser.frequencyBinCount);
+    const tick = () => {
+      analyser.getByteFrequencyData(samples);
+      const average = samples.reduce((sum, sample) => sum + sample, 0) / samples.length;
+      onVideoPlaybackLevel(Math.min(1, average / 128));
+      videoAnalyserFrameRef.current = requestAnimationFrame(tick);
+    };
+
+    const start = () => {
+      void context.resume();
+      tick();
+    };
+    const stop = () => {
+      if (videoAnalyserFrameRef.current) {
+        cancelAnimationFrame(videoAnalyserFrameRef.current);
+        videoAnalyserFrameRef.current = null;
+      }
+      onVideoPlaybackLevel(0);
+    };
+
+    video.addEventListener("play", start);
+    video.addEventListener("pause", stop);
+    video.addEventListener("ended", stop);
+    if (!video.paused) {
+      start();
+    }
+
+    return () => {
+      stop();
+      video.removeEventListener("play", start);
+      video.removeEventListener("pause", stop);
+      video.removeEventListener("ended", stop);
+      source.disconnect();
+      analyser.disconnect();
+      void context.close();
+    };
+  }, [onVideoPlaybackLevel, showVideo, videoUrl]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !showVideo || !activeCue || videoPlaybackRequest) {
+      return;
+    }
+    if (Math.abs(video.currentTime - activeCue.start_sec) > 0.4) {
+      video.currentTime = activeCue.start_sec;
+    }
+    video.pause();
+  }, [activeCue, showVideo, videoPlaybackRequest]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !showVideo || !videoPlaybackRequest) {
+      return;
+    }
+    const cue = deck.video_cues?.find((candidate) => candidate.page === videoPlaybackRequest.page) ?? null;
+    const isFullPlayback = videoPlaybackRequest.mode === "full";
+    if (!cue && !isFullPlayback && videoPlaybackRequest.page !== (deck.pages[0]?.page ?? 1)) {
+      return;
+    }
+    finishedRequestRef.current = null;
+    video.currentTime = isFullPlayback ? 0 : cue?.start_sec ?? 0;
+    void video.play().catch(() => {
+      onVideoPlaybackFinished?.("blocked");
+    });
+  }, [deck.video_cues, onVideoPlaybackFinished, showVideo, videoPlaybackRequest]);
+
+  const finishVideoRequest = (result: SlideVideoPlaybackResult = "ended") => {
+    if (!videoPlaybackRequest || finishedRequestRef.current === videoPlaybackRequest.nonce) {
+      return;
+    }
+    finishedRequestRef.current = videoPlaybackRequest.nonce;
+    onVideoPlaybackFinished?.(result);
+  };
+
+  const handleVideoTimeUpdate = () => {
+    const video = videoRef.current;
+    const cue = deck.video_cues?.find((candidate) => candidate.page === videoPlaybackRequest?.page) ?? null;
+    if (!video || videoPlaybackRequest?.mode === "full" || !cue?.end_sec) {
+      return;
+    }
+    if (video.currentTime >= cue.end_sec) {
+      video.pause();
+      finishVideoRequest("ended");
+    }
+  };
 
   return (
     <section className="slide-stage" aria-label="Slide preview">
@@ -42,7 +185,18 @@ export function SlideStage({ deck, activePage, evidenceSlides = [], imageUrl, qa
       </div>
 
       <div className="slide-stage__canvas">
-        {deck.pages.length > 0 ? (
+        {showVideo ? (
+          <video
+            key={videoUrl}
+            ref={videoRef}
+            className="slide-stage__video"
+            src={videoUrl}
+            playsInline
+            controls
+            onEnded={() => finishVideoRequest("ended")}
+            onTimeUpdate={handleVideoTimeUpdate}
+          />
+        ) : deck.pages.length > 0 ? (
           <img
             key={imageUrl}
             alt={`${deck.filename || "Slide deck"} page ${activePage ?? 1}`}

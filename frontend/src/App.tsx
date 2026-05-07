@@ -1,7 +1,12 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConversationPanel, type FlowStatus } from "./components/ConversationPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { SlideStage } from "./components/SlideStage";
+import {
+  SlideStage,
+  type SlideStageMode,
+  type SlideVideoPlaybackRequest,
+  type SlideVideoPlaybackResult
+} from "./components/SlideStage";
 import { StackChanAvatar } from "./components/StackChanAvatar";
 import { createBrowserSpeechRecognition, type BrowserSpeechRecognition } from "./lib/browserSpeech";
 import {
@@ -15,6 +20,7 @@ import {
   fetchApiAssetBlob,
   getSlideDeck,
   getSlidePageImageUrl,
+  resolveApiAssetUrl,
   selectSlideForQuery,
   sendChat,
   speakText,
@@ -94,6 +100,16 @@ const speechRecognitionLang = (language: MirrorSettings["language"]) => {
   return browserLanguage.toLowerCase().startsWith("en") ? "en-US" : "ja-JP";
 };
 
+const presentationVideoLanguage = (language: MirrorSettings["language"]): "ja" | "en" => {
+  if (language === "en") {
+    return "en";
+  }
+  if (language === "ja") {
+    return "ja";
+  }
+  return (navigator.language || "ja-JP").toLowerCase().startsWith("en") ? "en" : "ja";
+};
+
 const parseSlideVoiceAction = (text: string): SlideAction | null => {
   const normalized = text
     .toLowerCase()
@@ -170,6 +186,8 @@ export default function App() {
   const [evidenceDisplayPage, setEvidenceDisplayPage] = useState<number | null>(null);
   const [qaCountdownUntil, setQaCountdownUntil] = useState<number | null>(null);
   const [qaCountdownRemainingMs, setQaCountdownRemainingMs] = useState(0);
+  const [slideStageMode, setSlideStageMode] = useState<SlideStageMode>("presentation");
+  const [videoPlaybackRequest, setVideoPlaybackRequest] = useState<SlideVideoPlaybackRequest | null>(null);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -195,6 +213,7 @@ export default function App() {
   const idleTimerRef = useRef<number | null>(null);
   const evidenceSequenceTimerRef = useRef<number | null>(null);
   const qaCountdownUntilRef = useRef<number | null>(null);
+  const videoPlaybackFinishRef = useRef<((result: SlideVideoPlaybackResult) => void) | null>(null);
   const autoPresenterRef = useRef<{ nextPage: number }>({
     nextPage: 1,
   });
@@ -245,8 +264,10 @@ export default function App() {
         const firstPage = slideDeckRef.current.pages[0]?.page ?? 1;
         qaCountdownUntilRef.current = null;
         setQaCountdownUntil(null);
+        setSlideStageMode("presentation");
+        setVideoPlaybackRequest(null);
         autoPresenterRef.current = { nextPage: firstPage };
-        lastUserInteractionAtRef.current = Date.now();
+        lastUserInteractionAtRef.current = slideDeckRef.current.video_url ? 0 : Date.now();
         log("Final Q&A countdown finished; restarting from the first slide.");
       }
     };
@@ -273,6 +294,37 @@ export default function App() {
       window.clearInterval(evidenceSequenceTimerRef.current);
       evidenceSequenceTimerRef.current = null;
     }
+  }, []);
+
+  const playSlideVideo = useCallback(
+    (page: number, mode: "full" | "segment" = "segment") =>
+      new Promise<SlideVideoPlaybackResult>((resolve) => {
+        const deck = slideDeckRef.current;
+        const language = presentationVideoLanguage(settingsRef.current.language);
+        const cues = deck.video_cues_by_language?.[language] ?? deck.video_cues ?? [];
+        const hasSegmentCue = cues.some((cue) => cue.page === page);
+        const canPlayWholeVideoFromStart = page === (deck.pages[0]?.page ?? 1) && cues.length === 0;
+        const hasVideo = Boolean(deck.video_urls?.[language] || deck.video_url);
+        if (!hasVideo || (mode === "segment" && !hasSegmentCue && !canPlayWholeVideoFromStart)) {
+          resolve("blocked");
+          return;
+        }
+        videoPlaybackFinishRef.current = resolve;
+        setSlideStageMode("presentation");
+        setVideoPlaybackRequest({ page, nonce: Date.now(), mode });
+      }),
+    []
+  );
+
+  const finishSlideVideoPlayback = useCallback((result: SlideVideoPlaybackResult) => {
+    const finish = videoPlaybackFinishRef.current;
+    videoPlaybackFinishRef.current = null;
+    setVideoPlaybackRequest(null);
+    finish?.(result);
+  }, []);
+
+  const handleVideoPlaybackLevel = useCallback((level: number) => {
+    setPlaybackLevel(level);
   }, []);
 
   const startEvidenceSequence = useCallback(
@@ -357,6 +409,20 @@ export default function App() {
       }
     }, 350);
   }, []);
+
+  const enterQaTime = useCallback(() => {
+    const until = Date.now() + FINAL_QA_DURATION_MS;
+    qaCountdownUntilRef.current = until;
+    setQaCountdownUntil(until);
+    setQaCountdownRemainingMs(FINAL_QA_DURATION_MS);
+    setSlideStageMode("qa");
+    setVideoPlaybackRequest(null);
+    setPlaybackLevel(0);
+    setStatus(shouldListenRef.current ? "listening" : "idle");
+    lastUserInteractionAtRef.current = Date.now();
+    log("Started final Q&A countdown for 3 minutes.");
+    restartListeningIfNeeded();
+  }, [log, restartListeningIfNeeded]);
 
   const pauseCaptureForSpeech = useCallback(() => {
     recognitionRef.current?.abort();
@@ -456,6 +522,7 @@ export default function App() {
     flowAbortRef.current = null;
     audioRef.current?.pause();
     audioRef.current = null;
+    setVideoPlaybackRequest(null);
     clearEvidenceSequence();
     stopAnalyser();
     busyRef.current = false;
@@ -480,6 +547,8 @@ export default function App() {
         setQaCountdownUntil(null);
         setQaCountdownRemainingMs(0);
         setEvidenceDisplayPage(null);
+        setSlideStageMode("presentation");
+        setVideoPlaybackRequest(null);
         setStatus(shouldListenRef.current ? "listening" : "idle");
         await controlSlide(action, settingsRef.current);
         const nextPage = computeSlidePageFromDeck(slideDeckRef.current.pages, activeSlidePageRef.current, action);
@@ -490,9 +559,36 @@ export default function App() {
         autoPresenterRef.current = {
           nextPage: nextPage ?? autoPresenterRef.current.nextPage,
         };
-        lastUserInteractionAtRef.current = Date.now();
         setTranscriptDraft("");
         log(`${source === "voice" ? "Voice slide action" : "Slide action"}: ${action}`);
+        const deck = slideDeckRef.current;
+        const firstPage = deck.pages[0]?.page ?? 1;
+        const hasPreparedVideo = Boolean(deck.video_url || Object.keys(deck.video_urls ?? {}).length > 0);
+        if (action === "start" && hasPreparedVideo) {
+          const flowId = ++flowIdRef.current;
+          busyRef.current = true;
+          pauseCaptureForSpeech();
+          setError(undefined);
+          setStatus("speaking");
+          setPlaybackLevel(0.12);
+          activeSlidePageRef.current = firstPage;
+          setActiveSlidePage(firstPage);
+          log("Restarting prepared slide video from the beginning.");
+          const result = await playSlideVideo(firstPage, "full");
+          if (flowId === flowIdRef.current) {
+            setPlaybackLevel(0);
+            busyRef.current = false;
+            if (result === "ended") {
+              enterQaTime();
+            } else {
+              setStatus(shouldListenRef.current ? "listening" : "idle");
+              log("Video autoplay was blocked; waiting for Start after a browser gesture.");
+              restartListeningIfNeeded();
+            }
+          }
+          return;
+        }
+        lastUserInteractionAtRef.current = Date.now();
         restartListeningIfNeeded();
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : "Slide action failed.";
@@ -503,7 +599,7 @@ export default function App() {
         restartListeningIfNeeded();
       }
     },
-    [clearEvidenceSequence, log, restartListeningIfNeeded, stopAnalyser]
+    [clearEvidenceSequence, enterQaTime, log, pauseCaptureForSpeech, playSlideVideo, restartListeningIfNeeded, stopAnalyser]
   );
 
   const runTextConversation = useCallback(
@@ -561,6 +657,8 @@ export default function App() {
           hasSlideEvidence = evidence.length > 0;
           setEvidenceSlides(evidence);
           setEvidenceDisplayPage(evidence[0]?.page ?? selectedSlide.page);
+          setSlideStageMode("qa");
+          setVideoPlaybackRequest(null);
           activeSlidePageRef.current = selectedSlide.page;
           setActiveSlidePage(selectedSlide.page);
           autoPresenterRef.current = {
@@ -895,13 +993,15 @@ export default function App() {
         setActiveSlidePage(deck.pages[0]?.page ?? null);
         setEvidenceSlides([]);
         setEvidenceDisplayPage(null);
+        setSlideStageMode("presentation");
+        setVideoPlaybackRequest(null);
         qaCountdownUntilRef.current = null;
         setQaCountdownUntil(null);
         setQaCountdownRemainingMs(0);
         autoPresenterRef.current = {
           nextPage: deck.pages[0]?.page ?? 1,
         };
-        lastUserInteractionAtRef.current = Date.now();
+        lastUserInteractionAtRef.current = deck.video_url || Object.keys(deck.video_urls ?? {}).length > 0 ? 0 : Date.now();
         log(`Loaded PDF slides: ${deck.filename} (${deck.pages.length} pages).`);
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : "PDF slide import failed.";
@@ -923,13 +1023,15 @@ export default function App() {
         setActiveSlidePage(deck.pages[0]?.page ?? null);
         setEvidenceSlides([]);
         setEvidenceDisplayPage(null);
+        setSlideStageMode("presentation");
+        setVideoPlaybackRequest(null);
         qaCountdownUntilRef.current = null;
         setQaCountdownUntil(null);
         setQaCountdownRemainingMs(0);
         autoPresenterRef.current = {
           nextPage: deck.pages[0]?.page ?? 1,
         };
-        lastUserInteractionAtRef.current = Date.now();
+        lastUserInteractionAtRef.current = deck.video_url || Object.keys(deck.video_urls ?? {}).length > 0 ? 0 : Date.now();
         const source = deck.source ? ` from ${deck.source}` : "";
         log(`Loaded default slides${source}: ${deck.filename} (${deck.pages.length} pages).`);
       })
@@ -956,14 +1058,8 @@ export default function App() {
   }, [log]);
 
   const startFinalQaCountdown = useCallback(() => {
-    const until = Date.now() + FINAL_QA_DURATION_MS;
-    qaCountdownUntilRef.current = until;
-    setQaCountdownUntil(until);
-    setQaCountdownRemainingMs(FINAL_QA_DURATION_MS);
-    lastUserInteractionAtRef.current = Date.now();
-    log("Started final Q&A countdown for 3 minutes.");
-    restartListeningIfNeeded();
-  }, [log, restartListeningIfNeeded]);
+    enterQaTime();
+  }, [enterQaTime]);
 
   const playPreparedNarration = useCallback(async (
     narration: string,
@@ -990,6 +1086,35 @@ export default function App() {
       const assistantMessage = makeMessage("assistant", narration);
       messagesRef.current = [...messagesRef.current, assistantMessage];
       setMessages(messagesRef.current);
+
+      const videoLanguage = presentationVideoLanguage(settingsRef.current.language);
+      const videoCues = slideDeckRef.current.video_cues_by_language?.[videoLanguage] ?? slideDeckRef.current.video_cues ?? [];
+      const hasPreparedVideo = Boolean(slideDeckRef.current.video_urls?.[videoLanguage] || slideDeckRef.current.video_url);
+      if (slidePage && hasPreparedVideo) {
+        const hasSegmentCue = videoCues.some((cue) => cue.page === slidePage);
+        const videoMode = hasSegmentCue ? "segment" : "full";
+        const videoPage = hasSegmentCue ? slidePage : slideDeckRef.current.pages[0]?.page ?? slidePage;
+        setStatus("speaking");
+        setPlaybackLevel(0.16);
+        log("Playing prepared slide video.");
+        const result = await playSlideVideo(videoPage, videoMode);
+        if (flowId !== flowIdRef.current) {
+          return;
+        }
+        setPlaybackLevel(0);
+        setStatus(shouldListenRef.current ? "listening" : "idle");
+        lastUserInteractionAtRef.current = Date.now();
+        busyRef.current = false;
+        abortController.abort();
+        flowAbortRef.current = null;
+        if (result === "ended") {
+          options?.onPlaybackFinished?.();
+        } else {
+          log("Video autoplay was blocked; skipped slide narration fallback because the video contains the narration audio.");
+        }
+        restartListeningIfNeeded();
+        return;
+      }
 
       const speechCache = await cacheSpeech(narration, settingsRef.current, abortController.signal);
       if (flowId !== flowIdRef.current) {
@@ -1030,6 +1155,7 @@ export default function App() {
     log,
     pauseCaptureForSpeech,
     playAudioBlob,
+    playSlideVideo,
     restartListeningIfNeeded,
   ]);
 
@@ -1055,10 +1181,11 @@ export default function App() {
 
   const runIdlePresenterStep = useCallback(async () => {
     const deck = slideDeckRef.current;
-    if (!liveEnabledRef.current || busyRef.current || deck.pages.length === 0) {
+    if (busyRef.current || deck.pages.length === 0) {
       return;
     }
-    if (Date.now() - lastUserInteractionAtRef.current < 12_000) {
+    const hasPreparedVideo = Boolean(deck.video_url || Object.keys(deck.video_urls ?? {}).length > 0);
+    if (!liveEnabledRef.current && !hasPreparedVideo) {
       return;
     }
     if (qaCountdownUntilRef.current && qaCountdownUntilRef.current > Date.now()) {
@@ -1067,6 +1194,49 @@ export default function App() {
 
     const pages = deck.pages;
     const firstPage = pages[0]?.page ?? 1;
+    if (hasPreparedVideo) {
+      const flowId = ++flowIdRef.current;
+      flowAbortRef.current?.abort();
+      flowAbortRef.current = new AbortController();
+      audioRef.current?.pause();
+      audioRef.current = null;
+      clearEvidenceSequence();
+      stopAnalyser();
+      pauseCaptureForSpeech();
+      busyRef.current = true;
+      setError(undefined);
+      setTranscriptDraft("");
+      setEvidenceSlides([]);
+      setEvidenceDisplayPage(null);
+      setSlideStageMode("presentation");
+      activeSlidePageRef.current = firstPage;
+      setActiveSlidePage(firstPage);
+      setStatus("speaking");
+      setPlaybackLevel(0.12);
+      log("Playing prepared slide video.");
+      const result = await playSlideVideo(firstPage, "full");
+      if (flowId !== flowIdRef.current) {
+        return;
+      }
+      setPlaybackLevel(0);
+      busyRef.current = false;
+      flowAbortRef.current?.abort();
+      flowAbortRef.current = null;
+      if (result === "ended") {
+        enterQaTime();
+      } else {
+        setStatus(shouldListenRef.current ? "listening" : "idle");
+        lastUserInteractionAtRef.current = Date.now();
+        log("Video autoplay was blocked; presentation is waiting for Start after a browser gesture.");
+        restartListeningIfNeeded();
+      }
+      return;
+    }
+
+    if (Date.now() - lastUserInteractionAtRef.current < 12_000) {
+      return;
+    }
+
     const lastPage = pages[pages.length - 1]?.page ?? firstPage;
     const autoPage =
       pages.find((candidate) => candidate.page === autoPresenterRef.current.nextPage) ??
@@ -1104,14 +1274,40 @@ export default function App() {
       }
     );
     return;
-  }, [playPreparedNarration, startFinalQaCountdown]);
+  }, [
+    clearEvidenceSequence,
+    log,
+    pauseCaptureForSpeech,
+    playPreparedNarration,
+    playSlideVideo,
+    enterQaTime,
+    restartListeningIfNeeded,
+    startFinalQaCountdown,
+    stopAnalyser,
+  ]);
 
   const handleSettingsChange = useCallback(
     (nextSettings: MirrorSettings) => {
       const sttModeChanged = nextSettings.sttMode !== settingsRef.current.sttMode;
       const languageChanged = nextSettings.language !== settingsRef.current.language;
+      const shouldRestartPresentationVideo =
+        languageChanged &&
+        slideStageMode === "presentation" &&
+        Boolean(videoPlaybackRequest) &&
+        Boolean(slideDeckRef.current.video_url || Object.keys(slideDeckRef.current.video_urls ?? {}).length > 0);
       settingsRef.current = nextSettings;
       setSettings(nextSettings);
+
+      if (shouldRestartPresentationVideo) {
+        finishSlideVideoPlayback("blocked");
+        busyRef.current = false;
+        flowAbortRef.current?.abort();
+        flowAbortRef.current = null;
+        setPlaybackLevel(0);
+        setStatus("idle");
+        lastUserInteractionAtRef.current = 0;
+        log("Language changed; restarting prepared slide video.");
+      }
 
       if ((sttModeChanged || languageChanged) && shouldListenRef.current) {
         recognitionRef.current?.abort();
@@ -1122,7 +1318,7 @@ export default function App() {
         restartListeningIfNeeded();
       }
     },
-    [restartListeningIfNeeded]
+    [finishSlideVideoPlayback, log, restartListeningIfNeeded, slideStageMode, videoPlaybackRequest]
   );
 
   useEffect(() => {
@@ -1181,6 +1377,22 @@ export default function App() {
     () => getSlidePageImageUrl(settings, displayedSlidePage ?? 1),
     [displayedSlidePage, settings]
   );
+  const videoLanguage = useMemo(() => presentationVideoLanguage(settings.language), [settings.language]);
+  const activeVideoCues = useMemo(
+    () => slideDeck.video_cues_by_language?.[videoLanguage] ?? slideDeck.video_cues ?? [],
+    [slideDeck.video_cues, slideDeck.video_cues_by_language, videoLanguage]
+  );
+  const slideVideoUrl = useMemo(
+    () => {
+      const url = slideDeck.video_urls?.[videoLanguage] ?? slideDeck.video_url;
+      return url ? resolveApiAssetUrl(url, settings) : undefined;
+    },
+    [settings, slideDeck.video_url, slideDeck.video_urls, videoLanguage]
+  );
+  const displaySlideDeck = useMemo(
+    () => ({ ...slideDeck, video_cues: activeVideoCues }),
+    [activeVideoCues, slideDeck]
+  );
 
   useEffect(() => {
     if (slideDeck.pages.length === 0) {
@@ -1237,9 +1449,14 @@ export default function App() {
       >
         <SlideStage
           activePage={displayedSlidePage}
-          deck={slideDeck}
+          deck={displaySlideDeck}
           evidenceSlides={evidenceSlides}
           imageUrl={slideImageUrl}
+          mode={slideStageMode}
+          videoUrl={slideVideoUrl}
+          videoPlaybackRequest={videoPlaybackRequest}
+          onVideoPlaybackFinished={finishSlideVideoPlayback}
+          onVideoPlaybackLevel={handleVideoPlaybackLevel}
           qaCountdown={{
             durationMs: FINAL_QA_DURATION_MS,
             remainingMs: qaCountdownRemainingMs,

@@ -1,6 +1,6 @@
 # Mirror
 
-Mirror is a local research-presentation assistant with a Vite frontend and FastAPI backend. It listens continuously, answers through local speech, shows the active PDF slide, and uses a lightweight Stack-chan style avatar for lip-flap and idle motion.
+Mirror is a local research-presentation assistant with a Vite frontend and FastAPI backend. It plays a prepared presentation video, switches to PDF slide images for Q&A, answers through local speech, and uses a lightweight Stack-chan style avatar for lip-flap and idle motion.
 
 ## Prerequisites
 
@@ -54,9 +54,26 @@ Open `http://127.0.0.1:5173`. Mirror now arms live listening on startup:
 - Set `MIRROR_TTS_ENGINE=voicevox` and run VOICEVOX locally on `http://127.0.0.1:50021` to try voices such as Zundamon.
 - Upload a slide PDF from the Slides panel to index page summaries; questions will select a relevant page before answering.
 - By default, Mirror loads `data/decks/general-meeting/General Meeting.pdf` and the prepared narration metadata in `General Meeting.json`.
-- The avatar is a Stack-chan style CSS/React character. It lip-flaps from playback volume and sways by listening/speaking state.
+- If `General Meeting_JP.mp4` and `General Meeting_EN.mp4` are present, Mirror uses them as prepared presentation videos. The Language setting selects the JP or EN video.
+- Prepared videos use their own audio. Mirror does not synthesize TTS for video narration.
+- When the video ends, Mirror enters a 3-minute Q&A window and shows PDF slide images for related evidence. When Q&A ends, the video restarts from the beginning.
+- The avatar is a Stack-chan style CSS/React character. It lip-flaps from response audio or the prepared video element's audio level, and sways by listening/speaking state.
 - Use Interrupt to stop the current generation or playback and return to listening.
 - If Ollama is not running yet, `/api/chat` returns a local fallback response so STT, playback, and avatar motion can still be tested.
+
+## Current Performance Snapshot
+
+Measured locally on Windows 11 / Intel Core i7-11700 / 34GB RAM:
+
+- Vite ready time: about `597ms`
+- `/api/slides/select`: about `25ms` average
+- `/api/slides/page/1.png?width=640`: about `149ms` average
+- JP video 1MB range request: about `15.6ms`
+- Short Windows SAPI TTS: about `436ms` average
+- Warmed `gemma4:e2b` short chat: about `987ms` average, `842ms` median
+- QA-style evidence chat after warmup: about `0.8-0.9s`
+
+The first LLM request after startup can spike to several seconds, so a light warmup chat request is useful before demos.
 
 ## Expected App Layout
 
