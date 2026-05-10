@@ -20,11 +20,12 @@ if errorlevel 1 (
   exit /b 1
 )
 
+start "Mirror TTS 5000" "%~dp0scripts\start-style-bert-vits2.cmd"
 start "Mirror API 8004" "%~dp0scripts\start-api.cmd"
 start "Mirror Web 5173" "%~dp0scripts\start-web.cmd"
 
-echo Waiting for servers to warm up...
-timeout /t 6 /nobreak >nul
+echo Waiting for the Ota TTS model to warm up...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\wait-style-bert-vits2.ps1" -TimeoutSeconds 45
 
 start "" "http://127.0.0.1:5173"
 
@@ -32,8 +33,9 @@ echo.
 echo Mirror is starting.
 echo Frontend: http://127.0.0.1:5173
 echo API:      http://127.0.0.1:8004
+echo TTS:      http://127.0.0.1:5000 ^(Style-Bert-VITS2 / Ota^)
 echo.
-echo Close the "Mirror API 8004" and "Mirror Web 5173" windows to stop the app.
+echo Close the "Mirror TTS 5000", "Mirror API 8004", and "Mirror Web 5173" windows to stop the app.
 timeout /t 3 /nobreak >nul
 
 endlocal

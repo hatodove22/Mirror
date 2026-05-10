@@ -16,9 +16,16 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 - `MIRROR_OLLAMA_URL`: Ollama server URL. Defaults to `http://127.0.0.1:11434`.
 - `MIRROR_LLM_MODEL`: default model for `/api/chat`. Defaults to `gemma4:e2b`.
-- `MIRROR_TTS_ENGINE`: `windows-sapi` or `voicevox` for the stable runtime. Defaults to `windows-sapi`.
+- `MIRROR_TTS_ENGINE`: `windows-sapi`, `voicevox`, or `style-bert-vits2`. Defaults to `windows-sapi`.
 - `MIRROR_AVATAR_ENGINE`: defaults to `stack-chan`, which is rendered entirely in the frontend.
 - `MIRROR_SPEAK_MAX_CHARS`: maximum text chunk length for one speech synthesis call. Defaults to `260`.
+- `MIRROR_STYLE_BERT_VITS2_URL`: local Style-Bert-VITS2 FastAPI server URL. Defaults to `http://127.0.0.1:5000`.
+- `MIRROR_STYLE_BERT_VITS2_MODEL`: optional Style-Bert-VITS2 `model_name`.
+- `MIRROR_STYLE_BERT_VITS2_SPEAKER`: optional `speaker_name` or numeric `speaker_id`.
+- `MIRROR_STYLE_BERT_VITS2_STYLE`: optional style name. Defaults to `Neutral`.
+- `MIRROR_STYLE_BERT_VITS2_STYLE_WEIGHT`: optional style strength. Defaults to `1.0`.
+- `MIRROR_STYLE_BERT_VITS2_LENGTH`: optional speech length/speed control. Defaults to `1.0`.
+- `MIRROR_STYLE_BERT_VITS2_REFERENCE_AUDIO`: optional local WAV path for Style-Bert-VITS2 style reference. Use only recordings you own or have explicit permission to use.
 - `MIRROR_VOICEVOX_URL`: optional VOICEVOX engine URL for voices such as Zundamon. Defaults to `http://127.0.0.1:50021`.
 - `MIRROR_VOICEVOX_SPEAKER`: default VOICEVOX speaker id. Defaults to `3`.
 - `MIRROR_FFMPEG_PATH`: optional explicit ffmpeg executable path; winget `Gyan.FFmpeg` is auto-detected.
@@ -50,3 +57,18 @@ General Meeting_EN.mp4
 ```
 
 Optional cue files can be added as `General Meeting_JP.video.json` and `General Meeting_EN.video.json`. If cues are absent, the frontend treats the selected language video as a full presentation video. During Q&A the frontend switches back to PDF slide PNGs for evidence display.
+
+## Style-Bert-VITS2
+
+Mirror integrates Style-Bert-VITS2 as an optional local HTTP adapter. `Start-Mirror.bat` starts the local Style-Bert-VITS2 FastAPI server for the trained `Ota` model, then starts the Mirror API with:
+
+```powershell
+MIRROR_TTS_ENGINE=style-bert-vits2
+MIRROR_STYLE_BERT_VITS2_URL=http://127.0.0.1:5000
+MIRROR_STYLE_BERT_VITS2_MODEL=Ota
+MIRROR_STYLE_BERT_VITS2_SPEAKER=Ota
+```
+
+Mirror calls `POST /voice` and falls back to Windows SAPI if the Style-Bert-VITS2 server is unavailable or returns non-WAV audio.
+
+For personal voice matching, train or configure a Style-Bert-VITS2 model from recordings of your own voice, then set `MIRROR_STYLE_BERT_VITS2_MODEL` and `MIRROR_STYLE_BERT_VITS2_SPEAKER`. `MIRROR_STYLE_BERT_VITS2_REFERENCE_AUDIO` may be used as a local reference-audio path for style control, but it should be your own recording or material you have explicit permission to use.

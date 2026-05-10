@@ -28,6 +28,16 @@ VIBEVOICE_BASE_URL = os.getenv("MIRROR_VIBEVOICE_URL", os.getenv("VIBEVOICE_BASE
 TTS_ENGINE = os.getenv("MIRROR_TTS_ENGINE", "windows-sapi").strip().lower()
 if TTS_ENGINE != "vibevoice":
     VIBEVOICE_BASE_URL = ""
+STYLE_BERT_VITS2_BASE_URL = os.getenv(
+    "MIRROR_STYLE_BERT_VITS2_URL",
+    "http://127.0.0.1:5000",
+).rstrip("/")
+STYLE_BERT_VITS2_MODEL = os.getenv("MIRROR_STYLE_BERT_VITS2_MODEL", "").strip()
+STYLE_BERT_VITS2_SPEAKER = os.getenv("MIRROR_STYLE_BERT_VITS2_SPEAKER", "").strip()
+STYLE_BERT_VITS2_STYLE = os.getenv("MIRROR_STYLE_BERT_VITS2_STYLE", "Neutral").strip()
+STYLE_BERT_VITS2_STYLE_WEIGHT = float(os.getenv("MIRROR_STYLE_BERT_VITS2_STYLE_WEIGHT", "1.0"))
+STYLE_BERT_VITS2_LENGTH = float(os.getenv("MIRROR_STYLE_BERT_VITS2_LENGTH", "1.0"))
+STYLE_BERT_VITS2_REFERENCE_AUDIO = os.getenv("MIRROR_STYLE_BERT_VITS2_REFERENCE_AUDIO", "").strip()
 VOICEVOX_BASE_URL = os.getenv("MIRROR_VOICEVOX_URL", "http://127.0.0.1:50021").rstrip("/")
 VOICEVOX_SPEAKER = int(os.getenv("MIRROR_VOICEVOX_SPEAKER", "3"))
 SPEAK_MAX_CHARS = int(os.getenv("MIRROR_SPEAK_MAX_CHARS", "260"))
@@ -211,6 +221,10 @@ async def health() -> dict[str, Any]:
         "connected": False,
         "detail": "VibeVoice is disabled.",
     }
+    style_bert_vits2_probe = await _probe_style_bert_vits2() if TTS_ENGINE == "style-bert-vits2" else {
+        "connected": False,
+        "detail": "Style-Bert-VITS2 is not selected.",
+    }
     voicevox_probe = await _probe_voicevox() if TTS_ENGINE == "voicevox" else {
         "connected": False,
         "detail": "VOICEVOX is not selected.",
@@ -221,11 +235,14 @@ async def health() -> dict[str, Any]:
         "ollama_base_url": OLLAMA_BASE_URL,
         "default_llm_model": DEFAULT_LLM_MODEL,
         "tts_engine": TTS_ENGINE,
-        "speech_backend": _speech_backend_name(vibevoice_probe, voicevox_probe),
+        "speech_backend": _speech_backend_name(vibevoice_probe, voicevox_probe, style_bert_vits2_probe),
         "speech_max_chars": SPEAK_MAX_CHARS,
         "vibevoice_base_url": VIBEVOICE_BASE_URL if TTS_ENGINE == "vibevoice" else "",
         "vibevoice_connected": vibevoice_probe["connected"],
         "vibevoice_detail": vibevoice_probe["detail"],
+        "style_bert_vits2_base_url": STYLE_BERT_VITS2_BASE_URL,
+        "style_bert_vits2_connected": style_bert_vits2_probe["connected"],
+        "style_bert_vits2_detail": style_bert_vits2_probe["detail"],
         "voicevox_base_url": VOICEVOX_BASE_URL,
         "voicevox_connected": voicevox_probe["connected"],
         "voicevox_detail": voicevox_probe["detail"],
@@ -1262,6 +1279,11 @@ async def _synthesize_speech_wav(request: SpeakRequest) -> tuple[bytes, str, int
         if audio:
             return audio, "vibevoice", 1
 
+    if TTS_ENGINE == "style-bert-vits2":
+        audio = await _try_style_bert_vits2(request.model_copy(update={"text": speech_text}))
+        if audio:
+            return audio, "style-bert-vits2", 1
+
     windows_chunks: list[bytes] = []
     for chunk in chunks:
         audio = await _try_windows_sapi(request.model_copy(update={"text": chunk}))
@@ -1415,6 +1437,52 @@ def _voicevox_speaker_id(voice: str | None) -> int:
     return int(match.group(0)) if match else VOICEVOX_SPEAKER
 
 
+async def _try_style_bert_vits2(request: SpeakRequest) -> bytes | None:
+    params: dict[str, Any] = {
+        "text": request.text,
+        "language": _style_bert_vits2_language(request.text),
+        "style": STYLE_BERT_VITS2_STYLE,
+        "style_weight": STYLE_BERT_VITS2_STYLE_WEIGHT,
+        "length": STYLE_BERT_VITS2_LENGTH,
+        "auto_split": "true",
+    }
+    if STYLE_BERT_VITS2_MODEL:
+        params["model_name"] = STYLE_BERT_VITS2_MODEL
+    speaker = _style_bert_vits2_speaker(request.voice)
+    if speaker:
+        if speaker.isdigit():
+            params["speaker_id"] = int(speaker)
+        else:
+            params["speaker_name"] = speaker
+    if STYLE_BERT_VITS2_REFERENCE_AUDIO:
+        params["reference_audio_path"] = STYLE_BERT_VITS2_REFERENCE_AUDIO
+
+    try:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
+            response = await client.post(f"{STYLE_BERT_VITS2_BASE_URL}/voice", params=params)
+        if response.status_code >= 400 or not response.content:
+            return None
+        if not response.content.startswith(b"RIFF"):
+            return None
+        return response.content
+    except httpx.HTTPError:
+        return None
+
+
+def _style_bert_vits2_language(text: str) -> str:
+    if re.search(r"[\u3040-\u30ff\u3400-\u9fff]", text):
+        return "JP"
+    return "EN"
+
+
+def _style_bert_vits2_speaker(voice: str | None) -> str:
+    frontend_placeholders = {"", "windows-default"}
+    candidate = (voice or "").strip()
+    if candidate in frontend_placeholders or candidate.startswith("voicevox-"):
+        return STYLE_BERT_VITS2_SPEAKER
+    return candidate or STYLE_BERT_VITS2_SPEAKER
+
+
 async def _try_vibevoice_http(request: SpeakRequest) -> bytes | None:
     payload = {
         "text": request.text,
@@ -1470,6 +1538,17 @@ async def _probe_vibevoice() -> dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
             response = await client.get(f"{VIBEVOICE_BASE_URL}/config")
+        if response.status_code < 400:
+            return {"connected": True, "detail": response.json()}
+        return {"connected": False, "detail": f"HTTP {response.status_code}"}
+    except (httpx.HTTPError, json.JSONDecodeError) as exc:
+        return {"connected": False, "detail": str(exc)}
+
+
+async def _probe_style_bert_vits2() -> dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            response = await client.get(f"{STYLE_BERT_VITS2_BASE_URL}/models/info")
         if response.status_code < 400:
             return {"connected": True, "detail": response.json()}
         return {"connected": False, "detail": f"HTTP {response.status_code}"}
@@ -1729,11 +1808,18 @@ def _stt_backend_name() -> str:
     return f"faster-whisper:{WHISPER_MODEL}:{WHISPER_DEVICE}:{WHISPER_COMPUTE_TYPE}"
 
 
-def _speech_backend_name(vibevoice_probe: dict[str, Any], voicevox_probe: dict[str, Any]) -> str:
+def _speech_backend_name(
+    vibevoice_probe: dict[str, Any],
+    voicevox_probe: dict[str, Any],
+    style_bert_vits2_probe: dict[str, Any] | None = None,
+) -> str:
     if TTS_ENGINE == "voicevox":
         return "voicevox" if voicevox_probe["connected"] else "voicevox-or-windows-sapi"
     if TTS_ENGINE == "vibevoice":
         return "vibevoice-websocket" if vibevoice_probe["connected"] else "vibevoice-or-windows-sapi"
+    if TTS_ENGINE == "style-bert-vits2":
+        connected = bool(style_bert_vits2_probe and style_bert_vits2_probe["connected"])
+        return "style-bert-vits2" if connected else "style-bert-vits2-or-windows-sapi"
     return "windows-sapi"
 
 

@@ -37,6 +37,47 @@ def test_speak_returns_wav_audio():
     assert response.content.startswith(b"RIFF")
 
 
+def test_speak_can_use_style_bert_vits2(monkeypatch):
+    async def fake_style_bert_vits2(request):
+        assert request.text == "hello mirror"
+        return b"RIFF0000WAVE"
+
+    monkeypatch.setattr(main, "TTS_ENGINE", "style-bert-vits2")
+    monkeypatch.setattr(main, "_try_style_bert_vits2", fake_style_bert_vits2)
+
+    response = client.post("/api/speak", json={"text": "hello mirror"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    assert response.headers["x-speech-backend"] == "style-bert-vits2"
+    assert response.content == b"RIFF0000WAVE"
+
+
+def test_speak_falls_back_when_style_bert_vits2_is_unavailable(monkeypatch):
+    async def fake_style_bert_vits2(_request):
+        return None
+
+    async def fake_windows_sapi(_request):
+        return main._synthetic_wav("hello mirror")
+
+    monkeypatch.setattr(main, "TTS_ENGINE", "style-bert-vits2")
+    monkeypatch.setattr(main, "_try_style_bert_vits2", fake_style_bert_vits2)
+    monkeypatch.setattr(main, "_try_windows_sapi", fake_windows_sapi)
+
+    response = client.post("/api/speak", json={"text": "hello mirror"})
+
+    assert response.status_code == 200
+    assert response.headers["x-speech-backend"] == "windows-sapi"
+
+
+def test_style_bert_vits2_ignores_frontend_voice_placeholders(monkeypatch):
+    monkeypatch.setattr(main, "STYLE_BERT_VITS2_SPEAKER", "ota")
+
+    assert main._style_bert_vits2_speaker("windows-default") == "ota"
+    assert main._style_bert_vits2_speaker("voicevox-3") == "ota"
+    assert main._style_bert_vits2_speaker("custom-speaker") == "custom-speaker"
+
+
 def test_chat_has_local_fallback_when_ollama_is_unavailable(monkeypatch):
     monkeypatch.setattr(main, "OLLAMA_BASE_URL", "http://127.0.0.1:9")
 

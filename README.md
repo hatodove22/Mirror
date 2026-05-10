@@ -27,7 +27,7 @@ Double-click:
 Start-Mirror.bat
 ```
 
-This opens separate API and frontend terminal windows, then opens `http://127.0.0.1:5173` in the browser.
+This opens separate TTS, API, and frontend terminal windows, then opens `http://127.0.0.1:5173` in the browser. The TTS window starts the local Style-Bert-VITS2 server for the trained `Ota` voice model.
 
 Command line:
 
@@ -39,6 +39,7 @@ This starts:
 
 - Vite on `http://127.0.0.1:5173`
 - FastAPI via `python -m uvicorn backend.app.main:app --reload` on `http://127.0.0.1:8004`
+- Style-Bert-VITS2 on `http://127.0.0.1:5000` when launched through `Start-Mirror.bat`
 
 The Vite dev server proxies `/api` requests to `VITE_API_PROXY_TARGET`.
 
@@ -50,8 +51,9 @@ Open `http://127.0.0.1:5173`. Mirror now arms live listening on startup:
 - The mic pauses while the avatar speaks, then resumes automatically.
 - If browser speech recognition is unavailable, switch Speech recognition to `Backend Whisper windows` in Settings.
 - Backend Whisper uses `faster-whisper` on CPU/int8 by default; the first real transcription may download the selected model.
-- `/api/speak` uses Windows SAPI by default, splits long speech text into readable chunks, and returns WAV audio.
+- `/api/speak` uses the trained Style-Bert-VITS2 `Ota` voice by default in the local `.env`, splits long speech text into readable chunks, and returns WAV audio.
 - Set `MIRROR_TTS_ENGINE=voicevox` and run VOICEVOX locally on `http://127.0.0.1:50021` to try voices such as Zundamon.
+- For manual startup without `Start-Mirror.bat`, run `scripts\start-style-bert-vits2.cmd` before starting the API; if Style-Bert-VITS2 is unavailable, Mirror falls back to Windows SAPI.
 - Upload a slide PDF from the Slides panel to index page summaries; questions will select a relevant page before answering.
 - By default, Mirror loads `data/decks/general-meeting/General Meeting.pdf` and the prepared narration metadata in `General Meeting.json`.
 - If `General Meeting_JP.mp4` and `General Meeting_EN.mp4` are present, Mirror uses them as prepared presentation videos. The Language setting selects the JP or EN video.
