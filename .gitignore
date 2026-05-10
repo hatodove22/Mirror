@@ -16,7 +16,14 @@ third_party/
 data/avatar-cache/
 data/slide-cache/
 data/voice-samples/
+output/
+tmp/
 *.log
+*.mp4
+*.m4a
+*.wav
+*.safetensors
+*.pth
 vibevoice-test.*
 
 .DS_Store

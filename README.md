@@ -6,20 +6,56 @@ Mirror is a local research-presentation assistant with a Vite frontend and FastA
 
 - Node.js 20 or newer
 - Python 3.11 or newer
+- Python 3.10 for Style-Bert-VITS2 setup
 - PowerShell
 - Ollama with `gemma4:e2b`
 - ffmpeg for backend Whisper audio decoding
 
-## Setup
+## Quick Start
 
 ```powershell
-cd C:\Users\tesul\Mirror
+git clone https://github.com/hatodove22/Mirror.git
+cd Mirror
 .\scripts\setup.ps1
 ```
 
 The default avatar is frontend-only. MuseTalk, Wav2Lip, and VibeVoice are no longer part of the default runtime.
 
-## Run
+## Slides And Optional Videos
+
+Mirror includes the default research deck:
+
+```text
+data\decks\general-meeting\General Meeting.pdf
+data\decks\general-meeting\General Meeting.json
+```
+
+To use your own presentation, replace those two files or set `MIRROR_DEFAULT_SLIDE_PDF` and `MIRROR_DEFAULT_SLIDE_JSON` in `.env`.
+
+Prepared presentation videos are optional and are not committed to this repository. To enable them, place these files beside the default deck or in the project root:
+
+```text
+General Meeting_JP.mp4
+General Meeting_EN.mp4
+```
+
+## Ota TTS Setup
+
+The trained Style-Bert-VITS2 model files are not committed. To install the upstream runtime and prepare the expected local directory:
+
+```powershell
+.\scripts\setup-style-bert-vits2.ps1
+```
+
+Then place the Ota model assets under:
+
+```text
+third_party\Style-Bert-VITS2\model_assets\Ota\
+```
+
+See [Style-Bert-VITS2 TTS Setup](docs/TTS_STYLE_BERT_VITS2.md) for the full setup and verification flow. If the model is not installed, Mirror falls back to Windows SAPI.
+
+## Run Mirror
 
 Double-click:
 
@@ -98,6 +134,8 @@ npm run dev:api   # run only FastAPI
 npm run build     # build frontend
 npm run preview   # preview built frontend
 npm run check     # TypeScript typecheck
+py -m pytest       # run backend tests
+.\scripts\check-public-release.ps1  # verify public repo contents
 ```
 
 ## Project Docs
@@ -105,3 +143,4 @@ npm run check     # TypeScript typecheck
 - [Project Status](docs/PROJECT_STATUS.md)
 - [Burndown](docs/BURNDOWN.md)
 - [Decisions](docs/DECISIONS.md)
+- [Style-Bert-VITS2 TTS Setup](docs/TTS_STYLE_BERT_VITS2.md)
