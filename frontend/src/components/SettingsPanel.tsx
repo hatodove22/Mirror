@@ -107,7 +107,7 @@ export function SettingsPanel({
           <h2>Voice</h2>
         </div>
 
-        <label className="field">
+        <label className="field settings-field--api-base">
           <span>API base</span>
           <input
             value={settings.endpointBase}
@@ -116,7 +116,7 @@ export function SettingsPanel({
           />
         </label>
 
-        <label className="field">
+        <label className="field settings-field--model">
           <span>Model</span>
           <input
             value={settings.model}
@@ -125,8 +125,8 @@ export function SettingsPanel({
           />
         </label>
 
-        <label className="field">
-          <span>Voice</span>
+        <label className="field settings-field--voice-select">
+          <span>TTS voice</span>
           <select value={settings.voice} onChange={(event) => update("voice", event.target.value)}>
             <option value="default">Default TTS</option>
             <option value="windows-default">Windows default TTS</option>
@@ -134,7 +134,7 @@ export function SettingsPanel({
           </select>
         </label>
 
-        <label className="field">
+        <label className="field settings-field--max-response">
           <span>Max response tokens</span>
           <input
             min="32"
@@ -146,7 +146,7 @@ export function SettingsPanel({
           />
         </label>
 
-        <label className="field">
+        <label className="field settings-field--max-speech">
           <span>Max speech chars</span>
           <input
             min="80"
@@ -158,7 +158,7 @@ export function SettingsPanel({
           />
         </label>
 
-        <label className="field">
+        <label className="field settings-field--stt-mode">
           <span>Speech recognition</span>
           <select
             value={settings.sttMode}
@@ -169,7 +169,7 @@ export function SettingsPanel({
           </select>
         </label>
 
-        <label className="field">
+        <label className="field settings-field--language">
           <span>Language</span>
           <select
             value={settings.language}
@@ -181,7 +181,7 @@ export function SettingsPanel({
           </select>
         </label>
 
-        <label className="toggle-row">
+        <label className="toggle-row settings-field--autoplay">
           <span>Autoplay response</span>
           <input
             type="checkbox"

@@ -798,12 +798,47 @@ h2 {
     overflow: visible;
   }
 
-  .settings-section--voice,
   .settings-section--privacy,
   .settings-section--activity,
   .settings-section--slides .slide-upload,
   .settings-section--slides .slide-video-status {
     display: none;
+  }
+
+  .settings-section--voice {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: end;
+    gap: 10px;
+    border-bottom: 1px solid #e6e0d3;
+    padding-bottom: 12px;
+  }
+
+  .settings-section--voice .section-heading {
+    grid-column: 1 / -1;
+    margin-bottom: 0;
+  }
+
+  .settings-section--voice .settings-field--api-base,
+  .settings-section--voice .settings-field--model,
+  .settings-section--voice .settings-field--max-response,
+  .settings-section--voice .settings-field--max-speech,
+  .settings-section--voice .settings-field--stt-mode,
+  .settings-section--voice .level-meter {
+    display: none;
+  }
+
+  .settings-section--voice .field,
+  .settings-section--voice .toggle-row {
+    margin-bottom: 0;
+  }
+
+  .settings-section--voice .toggle-row {
+    min-height: 36px;
+    border: 1px solid #cbc5b6;
+    border-radius: 8px;
+    padding: 0 10px;
+    background: #fffdf7;
   }
 
   .settings-section--slides {
