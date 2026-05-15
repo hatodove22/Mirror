@@ -126,7 +126,7 @@ const withTimeoutSignal = (signal: AbortSignal | undefined, timeoutMs: number) =
 };
 
 export const resolveApiAssetUrl = (assetUrl: string, settings: MirrorSettings) => {
-  if (/^https?:\/\//i.test(assetUrl)) {
+  if (/^(https?:|blob:|data:)/i.test(assetUrl)) {
     return assetUrl;
   }
 

@@ -674,7 +674,28 @@ h2 {
   line-height: 1.35;
 }
 
-.slide-deck-status strong {
+.slide-video-status {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  color: #5e6158;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.slide-video-status button {
+  justify-self: start;
+  min-height: 30px;
+  border: 1px solid #d8d4c8;
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #17201b;
+  background: #f0eadc;
+  font-weight: 750;
+}
+
+.slide-deck-status strong,
+.slide-video-status strong {
   color: #17201b;
   overflow-wrap: anywhere;
 }

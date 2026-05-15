@@ -215,8 +215,8 @@ export function SlideStage({
             </div>
             <div>
               <p className="eyebrow">Q&A Time</p>
-              <h2>質問をどうぞ</h2>
-              <p>残り時間の間は質問を優先して回答します。</p>
+              <h2>Questions are welcome.</h2>
+              <p>Mirror will prioritize audience questions during the remaining Q&A time.</p>
             </div>
           </div>
         ) : null}

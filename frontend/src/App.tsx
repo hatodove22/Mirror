@@ -43,6 +43,11 @@ type EvidenceSlide = Pick<
   "page" | "title" | "summary" | "score" | "keywords" | "evidence_text"
 >;
 
+interface LocalSlideVideo {
+  url: string;
+  name: string;
+}
+
 const defaultSettings: MirrorSettings = {
   endpointBase: "/api",
   model: "gemma4:e2b",
@@ -109,6 +114,15 @@ const presentationVideoLanguage = (language: MirrorSettings["language"]): "ja" |
   }
   return (navigator.language || "ja-JP").toLowerCase().startsWith("en") ? "en" : "ja";
 };
+
+const hasPreparedVideo = (deck: SlideDeck, localVideo?: LocalSlideVideo | null) =>
+  Boolean(localVideo?.url || deck.video_url || Object.keys(deck.video_urls ?? {}).length > 0);
+
+const hasPreparedVideoForLanguage = (
+  deck: SlideDeck,
+  language: "ja" | "en",
+  localVideo?: LocalSlideVideo | null
+) => Boolean(localVideo?.url || deck.video_urls?.[language] || deck.video_url);
 
 const parseSlideVoiceAction = (text: string): SlideAction | null => {
   const normalized = text
@@ -188,6 +202,7 @@ export default function App() {
   const [qaCountdownRemainingMs, setQaCountdownRemainingMs] = useState(0);
   const [slideStageMode, setSlideStageMode] = useState<SlideStageMode>("presentation");
   const [videoPlaybackRequest, setVideoPlaybackRequest] = useState<SlideVideoPlaybackRequest | null>(null);
+  const [localSlideVideo, setLocalSlideVideo] = useState<LocalSlideVideo | null>(null);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -209,6 +224,7 @@ export default function App() {
   const runTextConversationRef = useRef<((text: string, source: "browser" | "backend" | "keyboard") => Promise<void>) | null>(null);
   const activeSlidePageRef = useRef<number | null>(null);
   const slideDeckRef = useRef<SlideDeck>({ filename: "", pages: [] });
+  const localSlideVideoRef = useRef<LocalSlideVideo | null>(null);
   const lastUserInteractionAtRef = useRef(Date.now());
   const idleTimerRef = useRef<number | null>(null);
   const evidenceSequenceTimerRef = useRef<number | null>(null);
@@ -236,6 +252,16 @@ export default function App() {
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
+
+  useEffect(() => {
+    localSlideVideoRef.current = localSlideVideo;
+  }, [localSlideVideo]);
+
+  useEffect(() => () => {
+    if (localSlideVideoRef.current?.url) {
+      URL.revokeObjectURL(localSlideVideoRef.current.url);
+    }
+  }, []);
 
   useEffect(() => {
     liveEnabledRef.current = liveEnabled;
@@ -304,7 +330,7 @@ export default function App() {
         const cues = deck.video_cues_by_language?.[language] ?? deck.video_cues ?? [];
         const hasSegmentCue = cues.some((cue) => cue.page === page);
         const canPlayWholeVideoFromStart = page === (deck.pages[0]?.page ?? 1) && cues.length === 0;
-        const hasVideo = Boolean(deck.video_urls?.[language] || deck.video_url);
+        const hasVideo = hasPreparedVideoForLanguage(deck, language, localSlideVideoRef.current);
         if (!hasVideo || (mode === "segment" && !hasSegmentCue && !canPlayWholeVideoFromStart)) {
           resolve("blocked");
           return;
@@ -563,8 +589,8 @@ export default function App() {
         log(`${source === "voice" ? "Voice slide action" : "Slide action"}: ${action}`);
         const deck = slideDeckRef.current;
         const firstPage = deck.pages[0]?.page ?? 1;
-        const hasPreparedVideo = Boolean(deck.video_url || Object.keys(deck.video_urls ?? {}).length > 0);
-        if (action === "start" && hasPreparedVideo) {
+        const canPlayPreparedVideo = hasPreparedVideo(deck, localSlideVideoRef.current);
+        if (action === "start" && canPlayPreparedVideo) {
           const flowId = ++flowIdRef.current;
           busyRef.current = true;
           pauseCaptureForSpeech();
@@ -1001,7 +1027,7 @@ export default function App() {
         autoPresenterRef.current = {
           nextPage: deck.pages[0]?.page ?? 1,
         };
-        lastUserInteractionAtRef.current = deck.video_url || Object.keys(deck.video_urls ?? {}).length > 0 ? 0 : Date.now();
+        lastUserInteractionAtRef.current = hasPreparedVideo(deck, localSlideVideoRef.current) ? 0 : Date.now();
         log(`Loaded PDF slides: ${deck.filename} (${deck.pages.length} pages).`);
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : "PDF slide import failed.";
@@ -1011,6 +1037,38 @@ export default function App() {
     },
     [log]
   );
+
+  const handleSlideVideoSelect = useCallback(
+    (file: File) => {
+      const previousUrl = localSlideVideoRef.current?.url;
+      const nextVideo = {
+        url: URL.createObjectURL(file),
+        name: file.name,
+      };
+      localSlideVideoRef.current = nextVideo;
+      setLocalSlideVideo(nextVideo);
+      if (previousUrl) {
+        URL.revokeObjectURL(previousUrl);
+      }
+      setSlideStageMode("presentation");
+      setVideoPlaybackRequest(null);
+      lastUserInteractionAtRef.current = 0;
+      log(`Selected presentation video: ${file.name}.`);
+    },
+    [log]
+  );
+
+  const handleSlideVideoClear = useCallback(() => {
+    const previousUrl = localSlideVideoRef.current?.url;
+    if (previousUrl) {
+      URL.revokeObjectURL(previousUrl);
+    }
+    localSlideVideoRef.current = null;
+    setLocalSlideVideo(null);
+    setVideoPlaybackRequest(null);
+    lastUserInteractionAtRef.current = hasPreparedVideo(slideDeckRef.current, null) ? 0 : Date.now();
+    log("Cleared selected presentation video.");
+  }, [log]);
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -1031,7 +1089,7 @@ export default function App() {
         autoPresenterRef.current = {
           nextPage: deck.pages[0]?.page ?? 1,
         };
-        lastUserInteractionAtRef.current = deck.video_url || Object.keys(deck.video_urls ?? {}).length > 0 ? 0 : Date.now();
+        lastUserInteractionAtRef.current = hasPreparedVideo(deck, localSlideVideoRef.current) ? 0 : Date.now();
         const source = deck.source ? ` from ${deck.source}` : "";
         log(`Loaded default slides${source}: ${deck.filename} (${deck.pages.length} pages).`);
       })
@@ -1089,8 +1147,12 @@ export default function App() {
 
       const videoLanguage = presentationVideoLanguage(settingsRef.current.language);
       const videoCues = slideDeckRef.current.video_cues_by_language?.[videoLanguage] ?? slideDeckRef.current.video_cues ?? [];
-      const hasPreparedVideo = Boolean(slideDeckRef.current.video_urls?.[videoLanguage] || slideDeckRef.current.video_url);
-      if (slidePage && hasPreparedVideo) {
+      const canPlayPreparedVideo = hasPreparedVideoForLanguage(
+        slideDeckRef.current,
+        videoLanguage,
+        localSlideVideoRef.current
+      );
+      if (slidePage && canPlayPreparedVideo) {
         const hasSegmentCue = videoCues.some((cue) => cue.page === slidePage);
         const videoMode = hasSegmentCue ? "segment" : "full";
         const videoPage = hasSegmentCue ? slidePage : slideDeckRef.current.pages[0]?.page ?? slidePage;
@@ -1184,8 +1246,8 @@ export default function App() {
     if (busyRef.current || deck.pages.length === 0) {
       return;
     }
-    const hasPreparedVideo = Boolean(deck.video_url || Object.keys(deck.video_urls ?? {}).length > 0);
-    if (!liveEnabledRef.current && !hasPreparedVideo) {
+    const canPlayPreparedVideo = hasPreparedVideo(deck, localSlideVideoRef.current);
+    if (!liveEnabledRef.current && !canPlayPreparedVideo) {
       return;
     }
     if (qaCountdownUntilRef.current && qaCountdownUntilRef.current > Date.now()) {
@@ -1194,7 +1256,7 @@ export default function App() {
 
     const pages = deck.pages;
     const firstPage = pages[0]?.page ?? 1;
-    if (hasPreparedVideo) {
+    if (canPlayPreparedVideo) {
       const flowId = ++flowIdRef.current;
       flowAbortRef.current?.abort();
       flowAbortRef.current = new AbortController();
@@ -1294,7 +1356,7 @@ export default function App() {
         languageChanged &&
         slideStageMode === "presentation" &&
         Boolean(videoPlaybackRequest) &&
-        Boolean(slideDeckRef.current.video_url || Object.keys(slideDeckRef.current.video_urls ?? {}).length > 0);
+        hasPreparedVideo(slideDeckRef.current, localSlideVideoRef.current);
       settingsRef.current = nextSettings;
       setSettings(nextSettings);
 
@@ -1384,10 +1446,10 @@ export default function App() {
   );
   const slideVideoUrl = useMemo(
     () => {
-      const url = slideDeck.video_urls?.[videoLanguage] ?? slideDeck.video_url;
+      const url = localSlideVideo?.url ?? slideDeck.video_urls?.[videoLanguage] ?? slideDeck.video_url;
       return url ? resolveApiAssetUrl(url, settings) : undefined;
     },
-    [settings, slideDeck.video_url, slideDeck.video_urls, videoLanguage]
+    [localSlideVideo, settings, slideDeck.video_url, slideDeck.video_urls, videoLanguage]
   );
   const displaySlideDeck = useMemo(
     () => ({ ...slideDeck, video_cues: activeVideoCues }),
@@ -1495,11 +1557,14 @@ export default function App() {
         logs={logs}
         slideDeck={slideDeck}
         activeSlidePage={activeSlidePage}
+        selectedSlideVideoName={localSlideVideo?.name}
         onSettingsChange={handleSettingsChange}
         onResetConversation={resetConversation}
         onSlideAction={handleSlideAction}
         onExplainSlide={explainActiveSlide}
         onSlidePdfUpload={handleSlidePdfUpload}
+        onSlideVideoSelect={handleSlideVideoSelect}
+        onSlideVideoClear={handleSlideVideoClear}
       />
     </main>
   );

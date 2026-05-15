@@ -7,11 +7,14 @@ interface SettingsPanelProps {
   logs: string[];
   slideDeck: SlideDeck;
   activeSlidePage: number | null;
+  selectedSlideVideoName?: string;
   onSettingsChange: (settings: MirrorSettings) => void;
   onResetConversation: () => void;
   onSlideAction: (action: SlideAction) => void;
   onExplainSlide: () => void;
   onSlidePdfUpload: (file: File) => void;
+  onSlideVideoSelect: (file: File) => void;
+  onSlideVideoClear: () => void;
 }
 
 const Icon = ({
@@ -64,11 +67,14 @@ export function SettingsPanel({
   logs,
   slideDeck,
   activeSlidePage,
+  selectedSlideVideoName,
   onSettingsChange,
   onResetConversation,
   onSlideAction,
   onExplainSlide,
-  onSlidePdfUpload
+  onSlidePdfUpload,
+  onSlideVideoSelect,
+  onSlideVideoClear
 }: SettingsPanelProps) {
   const update = <Key extends keyof MirrorSettings>(key: Key, value: MirrorSettings[Key]) => {
     onSettingsChange({ ...settings, [key]: value });
@@ -81,6 +87,17 @@ export function SettingsPanel({
     }
     event.target.value = "";
   };
+
+  const handleVideoChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      onSlideVideoSelect(file);
+    }
+    event.target.value = "";
+  };
+
+  const detectedVideoLanguages = Object.keys(slideDeck.video_urls ?? {}).sort();
+  const hasDefaultVideo = Boolean(slideDeck.video_url || detectedVideoLanguages.length > 0);
 
   return (
     <aside className="settings-panel" aria-label="Settings and privacy">
@@ -111,10 +128,8 @@ export function SettingsPanel({
         <label className="field">
           <span>Voice</span>
           <select value={settings.voice} onChange={(event) => update("voice", event.target.value)}>
-            <option value="windows-default">Windows default</option>
-            <option value="voicevox-3">VOICEVOX ずんだもん</option>
-            <option value="voicevox-1">VOICEVOX 四国めたん</option>
-            <option value="voicevox-8">VOICEVOX 春日部つむぎ</option>
+            <option value="windows-default">Ota / default TTS</option>
+            <option value="Ota">Ota speaker</option>
           </select>
         </label>
 
@@ -197,6 +212,27 @@ export function SettingsPanel({
           <span>Slide PDF</span>
           <input accept="application/pdf" type="file" onChange={handlePdfChange} />
         </label>
+
+        <label className="field slide-upload">
+          <span>Presentation video</span>
+          <input accept="video/mp4,video/*" type="file" onChange={handleVideoChange} />
+        </label>
+
+        <div className="slide-video-status">
+          {selectedSlideVideoName ? (
+            <>
+              <span>Selected video: <strong>{selectedSlideVideoName}</strong></span>
+              <button type="button" onClick={onSlideVideoClear}>Clear video</button>
+            </>
+          ) : hasDefaultVideo ? (
+            <span>
+              Default video detected
+              {detectedVideoLanguages.length ? `: ${detectedVideoLanguages.join(", ").toUpperCase()}` : ""}
+            </span>
+          ) : (
+            <span>No presentation video selected</span>
+          )}
+        </div>
 
         <div className="slide-deck-status">
           {slideDeck.pages.length > 0 ? (
