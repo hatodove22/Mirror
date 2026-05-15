@@ -185,29 +185,31 @@ export function SlideStage({
       </div>
 
       <div className="slide-stage__canvas">
-        {showVideo ? (
-          <video
-            key={videoUrl}
-            ref={videoRef}
-            className="slide-stage__video"
-            src={videoUrl}
-            playsInline
-            controls
-            onEnded={() => finishVideoRequest("ended")}
-            onTimeUpdate={handleVideoTimeUpdate}
-          />
-        ) : deck.pages.length > 0 ? (
-          <img
-            key={imageUrl}
-            alt={`${deck.filename || "Slide deck"} page ${activePage ?? 1}`}
-            className="slide-stage__image"
-            src={imageUrl}
-          />
-        ) : (
-          <div className="slide-stage__empty">
-            <h2>No slide deck loaded</h2>
-          </div>
-        )}
+        <div className="slide-stage__media">
+          {showVideo ? (
+            <video
+              key={videoUrl}
+              ref={videoRef}
+              className="slide-stage__video"
+              src={videoUrl}
+              playsInline
+              controls
+              onEnded={() => finishVideoRequest("ended")}
+              onTimeUpdate={handleVideoTimeUpdate}
+            />
+          ) : deck.pages.length > 0 ? (
+            <img
+              key={imageUrl}
+              alt={`${deck.filename || "Slide deck"} page ${activePage ?? 1}`}
+              className="slide-stage__image"
+              src={imageUrl}
+            />
+          ) : (
+            <div className="slide-stage__empty">
+              <h2>No slide deck loaded</h2>
+            </div>
+          )}
+        </div>
         {isQaActive ? (
           <div className="slide-stage__qa-overlay" aria-live="polite">
             <div className="slide-stage__qa-ring" style={countdownStyle}>
