@@ -596,10 +596,10 @@ async def avatar_asset(asset_type: Literal["speech", "render"], filename: str) -
 @app.post("/api/slides/action")
 async def slide_action(request: SlideActionRequest) -> dict[str, Any]:
     if os.name != "nt":
-        raise HTTPException(status_code=400, detail="Slide control is only implemented on Windows.")
+        return {"ok": True, "action": request.action, "mode": "internal"}
 
     sent = _send_slide_key(request.action)
-    return {"ok": sent, "action": request.action}
+    return {"ok": sent, "action": request.action, "mode": "sendkeys"}
 
 
 @app.post("/api/slides/pdf")
