@@ -51,6 +51,38 @@ Run these on the HPC host.
 
 ```bash
 cd ~/Mirror
+chmod +x scripts/hpc-start.sh scripts/hpc-stop.sh scripts/hpc-status.sh
+scripts/hpc-start.sh
+```
+
+The start script launches Ollama, Style-Bert-VITS2, the Mirror API, and the frontend. It is safe to run again; already-listening services are skipped.
+
+The default direct-access URL is:
+
+```text
+http://<hpc-host>:5173/
+```
+
+## Stop Services
+
+```bash
+cd ~/Mirror
+scripts/hpc-stop.sh
+```
+
+## Check Status
+
+```bash
+cd ~/Mirror
+scripts/hpc-status.sh
+```
+
+## Manual Commands
+
+The helper scripts above are preferred. The following commands show what they do internally.
+
+```bash
+cd ~/Mirror
 mkdir -p tmp
 ```
 
@@ -110,9 +142,16 @@ nohup env \
 echo $! > tmp/hpc-web.pid
 ```
 
-## Stop Services
+## Manual Stop Commands
 
-Preferred stop command:
+The helper script is preferred:
+
+```bash
+cd ~/Mirror
+scripts/hpc-stop.sh
+```
+
+If you need to stop processes by hand:
 
 ```bash
 cd ~/Mirror
@@ -138,7 +177,7 @@ for port in 5173 8004 5000 11434; do
 done
 ```
 
-## Check Status
+## Manual Status Commands
 
 Ports:
 
