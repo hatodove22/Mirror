@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { ConversationMessage } from "../lib/api";
 
@@ -93,7 +93,24 @@ export function ConversationPanel({
   onTextSubmit
 }: ConversationPanelProps) {
   const [draft, setDraft] = useState("");
+  const messageListRef = useRef<HTMLDivElement | null>(null);
   const isBusy = status === "thinking" || status === "transcribing";
+
+  useEffect(() => {
+    const messageList = messageListRef.current;
+    if (!messageList) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      messageList.scrollTo({
+        top: messageList.scrollHeight,
+        behavior: "smooth"
+      });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [messages, transcriptDraft]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -116,7 +133,7 @@ export function ConversationPanel({
         <span className={`status-pill status-${status}`}>{statusLabel[status]}</span>
       </div>
 
-      <div className="message-list" role="log" aria-live="polite">
+      <div className="message-list" ref={messageListRef} role="log" aria-live="polite">
         {messages.length === 0 ? (
           <div className="empty-state">
             <h2>Start talking when Mirror is listening.</h2>
