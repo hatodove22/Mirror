@@ -1476,7 +1476,7 @@ def _style_bert_vits2_language(text: str) -> str:
 
 
 def _style_bert_vits2_speaker(voice: str | None) -> str:
-    frontend_placeholders = {"", "windows-default"}
+    frontend_placeholders = {"", "windows-default", "style-bert-vits2"}
     candidate = (voice or "").strip()
     if candidate in frontend_placeholders or candidate.startswith("voicevox-"):
         return STYLE_BERT_VITS2_SPEAKER
