@@ -101,7 +101,7 @@ export function SettingsPanel({
 
   return (
     <aside className="settings-panel" aria-label="Settings and privacy">
-      <div className="settings-section">
+      <div className="settings-section settings-section--voice">
         <div className="section-heading">
           <Icon name="volume" />
           <h2>Voice</h2>
@@ -195,7 +195,7 @@ export function SettingsPanel({
         </div>
       </div>
 
-      <div className="settings-section">
+      <div className="settings-section settings-section--slides">
         <div className="section-heading">
           <Icon name="slides" />
           <h2>Slides</h2>
@@ -250,7 +250,7 @@ export function SettingsPanel({
         </div>
       </div>
 
-      <div className="settings-section">
+      <div className="settings-section settings-section--privacy">
         <div className="section-heading">
           <Icon name="shield" />
           <h2>Privacy</h2>
@@ -280,7 +280,7 @@ export function SettingsPanel({
         </button>
       </div>
 
-      <div className="settings-section log-section">
+      <div className="settings-section settings-section--activity log-section">
         <h2>Activity</h2>
         <ol className="log-list">
           {logs.map((log, index) => (

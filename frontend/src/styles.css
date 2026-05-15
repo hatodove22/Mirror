@@ -788,7 +788,42 @@ h2 {
   }
 
   .settings-panel {
+    display: block;
+    height: auto;
+    min-height: 0;
+    padding: 12px;
+    overflow: visible;
+  }
+
+  .settings-section--voice,
+  .settings-section--privacy,
+  .settings-section--activity,
+  .settings-section--slides .slide-upload,
+  .settings-section--slides .slide-video-status {
     display: none;
+  }
+
+  .settings-section--slides {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+
+  .settings-section--slides .section-heading {
+    margin-bottom: 10px;
+  }
+
+  .settings-section--slides .slide-actions {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .settings-section--slides .slide-actions__wide {
+    grid-column: auto;
+  }
+
+  .settings-section--slides .slide-deck-status {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    margin-top: 8px;
   }
 
   .slide-stage {
