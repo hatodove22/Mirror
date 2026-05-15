@@ -27,7 +27,7 @@ check_url() {
   local label="$1"
   local url="$2"
   local code
-  code="$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$url" 2>/dev/null || true)"
+  code="$(curl -k -sS -o /dev/null -w "%{http_code}" --max-time 5 "$url" 2>/dev/null || true)"
   if [ "$code" = "200" ]; then
     echo "  $label: ok ($url)"
   else
@@ -35,7 +35,8 @@ check_url() {
   fi
 }
 
-check_url "frontend" "http://127.0.0.1:${VITE_PORT:-5173}/"
+check_url "frontend HTTP" "http://127.0.0.1:${VITE_PORT:-5173}/"
+check_url "frontend HTTPS" "https://127.0.0.1:${VITE_PORT:-5173}/"
 check_url "Mirror API" "http://127.0.0.1:${API_PORT:-8004}/api/health"
 check_url "Style-Bert-VITS2" "http://127.0.0.1:${SBV2_PORT:-5000}/models/info"
 check_url "Ollama" "http://127.0.0.1:${OLLAMA_PORT:-11434}/api/tags"

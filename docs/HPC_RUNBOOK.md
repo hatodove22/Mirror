@@ -37,13 +37,17 @@ http://127.0.0.1:5173/
 
 Use `http://`, not `https://`.
 
-For direct port access, start the frontend with `VITE_HOST=0.0.0.0` and open:
+For direct port access with microphone support, start the frontend with HTTPS and open:
 
 ```text
-http://<hpc-host>:5173/
+https://<hpc-host>:5173/
 ```
 
-In this mode, only the frontend dev server should be exposed. Keep the Mirror API, Style-Bert-VITS2, and Ollama bound to `127.0.0.1`; the frontend proxies `/api` to the local backend.
+Browsers require a secure context for microphone access. Plain `http://<hpc-host>:5173/` can show the page, but microphone permission may be blocked. The HPC start script generates a short-lived self-signed certificate under `tmp/` when `VITE_HTTPS=true`.
+
+For a lab demo, the cleanest option is a real DNS name with a trusted TLS certificate. If using the generated self-signed certificate, each client browser may need to explicitly trust it before microphone capture is available.
+
+Only the frontend dev server should be exposed. Keep the Mirror API, Style-Bert-VITS2, and Ollama bound to `127.0.0.1`; the frontend proxies `/api` to the local backend.
 
 ## Start Services
 
@@ -60,7 +64,7 @@ The start script launches Ollama, Style-Bert-VITS2, the Mirror API, and the fron
 The default direct-access URL is:
 
 ```text
-http://<hpc-host>:5173/
+https://<hpc-host>:5173/
 ```
 
 ## Stop Services
@@ -136,6 +140,7 @@ cd ~/Mirror
 nohup env \
   VITE_HOST=0.0.0.0 \
   VITE_PORT=5173 \
+  VITE_HTTPS=true \
   VITE_API_PROXY_TARGET=http://127.0.0.1:8004 \
   npm --prefix frontend run dev -- --host 0.0.0.0 --port 5173 \
   > tmp/hpc-web.log 2>&1 &

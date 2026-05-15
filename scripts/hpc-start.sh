@@ -12,6 +12,7 @@ SBV2_PORT="${SBV2_PORT:-5000}"
 API_PORT="${API_PORT:-8004}"
 WEB_PORT="${VITE_PORT:-5173}"
 WEB_HOST="${VITE_HOST:-0.0.0.0}"
+WEB_HTTPS="${VITE_HTTPS:-true}"
 
 is_listening() {
   local port="$1"
@@ -102,12 +103,54 @@ start_frontend() {
   fi
 
   echo "starting Mirror frontend on ${WEB_HOST}:${WEB_PORT}"
+  local https_env=()
+  if [ "$WEB_HTTPS" = "true" ] || [ "$WEB_HTTPS" = "1" ] || [ "$WEB_HTTPS" = "yes" ]; then
+    local cert_path="${VITE_HTTPS_CERT:-$TMP/hpc-https.crt}"
+    local key_path="${VITE_HTTPS_KEY:-$TMP/hpc-https.key}"
+    if [ ! -f "$cert_path" ] || [ ! -f "$key_path" ]; then
+      if ! command -v openssl >/dev/null 2>&1; then
+        echo "openssl is required to generate the HTTPS certificate" >&2
+        return 1
+      fi
+      local host_ip
+      host_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+      host_ip="${host_ip:-127.0.0.1}"
+      cat > "$TMP/hpc-https.cnf" <<EOF
+[req]
+default_bits = 2048
+prompt = no
+default_md = sha256
+x509_extensions = v3_req
+distinguished_name = dn
+
+[dn]
+CN = $host_ip
+
+[v3_req]
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = localhost
+IP.1 = 127.0.0.1
+IP.2 = $host_ip
+EOF
+      openssl req -x509 -newkey rsa:2048 -nodes -days 30 \
+        -keyout "$key_path" \
+        -out "$cert_path" \
+        -config "$TMP/hpc-https.cnf" >/dev/null 2>&1
+      chmod 600 "$key_path"
+      echo "generated self-signed HTTPS certificate: $cert_path"
+    fi
+    https_env=(VITE_HTTPS_KEY="$key_path" VITE_HTTPS_CERT="$cert_path")
+  fi
+
   (
     cd "$ROOT"
     nohup env \
       VITE_HOST="$WEB_HOST" \
       VITE_PORT="$WEB_PORT" \
       VITE_API_PROXY_TARGET="${VITE_API_PROXY_TARGET:-http://127.0.0.1:${API_PORT}}" \
+      "${https_env[@]}" \
       npm --prefix frontend run dev -- --host "$WEB_HOST" --port "$WEB_PORT" \
       > "$TMP/hpc-web.log" 2>&1 &
     echo $! > "$TMP/hpc-web.pid"
