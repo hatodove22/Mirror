@@ -128,7 +128,8 @@ export function SettingsPanel({
         <label className="field">
           <span>Voice</span>
           <select value={settings.voice} onChange={(event) => update("voice", event.target.value)}>
-            <option value="windows-default">Ota / default TTS</option>
+            <option value="default">Default TTS</option>
+            <option value="windows-default">Windows default TTS</option>
             <option value="Ota">Ota speaker</option>
           </select>
         </label>
@@ -164,7 +165,7 @@ export function SettingsPanel({
             onChange={(event) => update("sttMode", event.target.value as MirrorSettings["sttMode"])}
           >
             <option value="browser">Browser continuous</option>
-            <option value="backend">Backend Whisper windows</option>
+            <option value="backend">Backend Whisper window</option>
           </select>
         </label>
 

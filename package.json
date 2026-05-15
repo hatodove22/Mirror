@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "concurrently -n vite,api -c cyan,green \"npm:dev:web\" \"npm:dev:api\"",
     "dev:web": "npm --prefix frontend run dev -- --host 0.0.0.0",
-    "dev:api": "powershell -ExecutionPolicy Bypass -File ./scripts/dev-api.ps1",
+    "dev:api": "node ./scripts/dev-api.mjs",
     "build": "npm --prefix frontend run build",
     "preview": "npm --prefix frontend run preview -- --host 0.0.0.0",
     "check": "npm run typecheck",

@@ -15,6 +15,7 @@ __pycache__/
 third_party/
 data/avatar-cache/
 data/slide-cache/
+data/decks/uploaded/
 data/voice-samples/
 output/
 tmp/

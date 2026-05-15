@@ -1476,7 +1476,7 @@ def _style_bert_vits2_language(text: str) -> str:
 
 
 def _style_bert_vits2_speaker(voice: str | None) -> str:
-    frontend_placeholders = {"", "windows-default", "style-bert-vits2"}
+    frontend_placeholders = {"", "default", "windows-default", "style-bert-vits2"}
     candidate = (voice or "").strip()
     if candidate in frontend_placeholders or candidate.startswith("voicevox-"):
         return STYLE_BERT_VITS2_SPEAKER
@@ -1814,13 +1814,18 @@ def _speech_backend_name(
     style_bert_vits2_probe: dict[str, Any] | None = None,
 ) -> str:
     if TTS_ENGINE == "voicevox":
-        return "voicevox" if voicevox_probe["connected"] else "voicevox-or-windows-sapi"
+        fallback = "windows-sapi" if os.name == "nt" else "fallback-wav"
+        return "voicevox" if voicevox_probe["connected"] else f"voicevox-or-{fallback}"
     if TTS_ENGINE == "vibevoice":
-        return "vibevoice-websocket" if vibevoice_probe["connected"] else "vibevoice-or-windows-sapi"
+        fallback = "windows-sapi" if os.name == "nt" else "fallback-wav"
+        return "vibevoice-websocket" if vibevoice_probe["connected"] else f"vibevoice-or-{fallback}"
     if TTS_ENGINE == "style-bert-vits2":
         connected = bool(style_bert_vits2_probe and style_bert_vits2_probe["connected"])
-        return "style-bert-vits2" if connected else "style-bert-vits2-or-windows-sapi"
-    return "windows-sapi"
+        fallback = "windows-sapi" if os.name == "nt" else "fallback-wav"
+        return "style-bert-vits2" if connected else f"style-bert-vits2-or-{fallback}"
+    if TTS_ENGINE in {"fallback", "fallback-wav", "synthetic"}:
+        return "fallback-wav"
+    return "windows-sapi" if os.name == "nt" else "fallback-wav"
 
 
 def _transcribe_status_message(engine: str) -> str:

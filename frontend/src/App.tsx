@@ -51,7 +51,7 @@ interface LocalSlideVideo {
 const defaultSettings: MirrorSettings = {
   endpointBase: "/api",
   model: "gemma4:e2b",
-  voice: "windows-default",
+  voice: "default",
   maxResponseTokens: 96,
   maxSpeechChars: 260,
   sttMode: "browser",
