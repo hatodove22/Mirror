@@ -23,7 +23,7 @@ Prepared presentation videos, if used, should be placed outside Git at:
 
 ## Connect From Your PC
 
-Open an SSH tunnel and keep this terminal open:
+For private access, open an SSH tunnel and keep this terminal open:
 
 ```powershell
 ssh -L 5173:127.0.0.1:5173 <user>@<hpc-host>
@@ -36,6 +36,14 @@ http://127.0.0.1:5173/
 ```
 
 Use `http://`, not `https://`.
+
+For direct port access, start the frontend with `VITE_HOST=0.0.0.0` and open:
+
+```text
+http://<hpc-host>:5173/
+```
+
+In this mode, only the frontend dev server should be exposed. Keep the Mirror API, Style-Bert-VITS2, and Ollama bound to `127.0.0.1`; the frontend proxies `/api` to the local backend.
 
 ## Start Services
 
@@ -93,7 +101,11 @@ Start the frontend:
 
 ```bash
 cd ~/Mirror
-nohup npm --prefix frontend run dev -- --host 127.0.0.1 --port 5173 \
+nohup env \
+  VITE_HOST=0.0.0.0 \
+  VITE_PORT=5173 \
+  VITE_API_PROXY_TARGET=http://127.0.0.1:8004 \
+  npm --prefix frontend run dev -- --host 0.0.0.0 --port 5173 \
   > tmp/hpc-web.log 2>&1 &
 echo $! > tmp/hpc-web.pid
 ```
