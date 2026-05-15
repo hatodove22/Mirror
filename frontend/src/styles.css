@@ -778,16 +778,19 @@ h2 {
   }
 
   .conversation-panel {
+    order: 1;
     height: min(34dvh, 520px);
     min-height: 360px;
   }
 
   .presentation-host {
+    order: 3;
     height: auto;
     min-height: 0;
   }
 
   .settings-panel {
+    order: 2;
     display: block;
     height: auto;
     min-height: 0;
